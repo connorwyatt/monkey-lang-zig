@@ -1,7 +1,7 @@
 const std = @import("std");
 const Token = @import("token.zig").Token;
 
-const Lexer = struct {
+pub const Lexer = struct {
     input: []const u8,
     position: usize,
     read_position: usize,
@@ -9,7 +9,7 @@ const Lexer = struct {
 
     const Self = @This();
 
-    fn init(input: []const u8) Self {
+    pub fn init(input: []const u8) Self {
         var self = Self{
             .input = input,
             .position = 0,
@@ -20,7 +20,7 @@ const Lexer = struct {
         return self;
     }
 
-    fn nextToken(self: *Self) Token {
+    pub fn nextToken(self: *Self) Token {
         self.skipWhitespace();
 
         const token: Token = switch (self.character) {
