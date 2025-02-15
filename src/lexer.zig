@@ -3,14 +3,19 @@ const Token = @import("token.zig").Token;
 
 const Lexer = struct {
     input: []const u8,
-    position: usize = 0,
-    read_position: usize = 0,
-    character: u8 = 0,
+    position: usize,
+    read_position: usize,
+    character: u8,
 
     const Self = @This();
 
     fn init(input: []const u8) Self {
-        var self = Self{ .input = input };
+        var self = Self{
+            .input = input,
+            .position = 0,
+            .read_position = 0,
+            .character = undefined,
+        };
         self.readCharacter();
         return self;
     }
@@ -19,8 +24,58 @@ const Lexer = struct {
         self.skipWhitespace();
 
         const token: Token = switch (self.character) {
-            '=' => .{
-                .type = Token.ASSIGN,
+            '=' => blk: {
+                if (self.peekCharacter() == '=') {
+                    const start_position = self.position;
+                    self.readCharacter();
+                    break :blk .{
+                        .type = Token.EQ,
+                        .literal = self.input[start_position..self.read_position],
+                    };
+                } else {
+                    break :blk .{
+                        .type = Token.ASSIGN,
+                        .literal = self.input[self.position..self.read_position],
+                    };
+                }
+            },
+            '+' => .{
+                .type = Token.PLUS,
+                .literal = self.input[self.position..self.read_position],
+            },
+            '-' => .{
+                .type = Token.MINUS,
+                .literal = self.input[self.position..self.read_position],
+            },
+            '!' => blk: {
+                if (self.peekCharacter() == '=') {
+                    const start_position = self.position;
+                    self.readCharacter();
+                    break :blk .{
+                        .type = Token.NOT_EQ,
+                        .literal = self.input[start_position..self.read_position],
+                    };
+                } else {
+                    break :blk .{
+                        .type = Token.BANG,
+                        .literal = self.input[self.position..self.read_position],
+                    };
+                }
+            },
+            '/' => .{
+                .type = Token.SLASH,
+                .literal = self.input[self.position..self.read_position],
+            },
+            '*' => .{
+                .type = Token.ASTERISK,
+                .literal = self.input[self.position..self.read_position],
+            },
+            '<' => .{
+                .type = Token.LT,
+                .literal = self.input[self.position..self.read_position],
+            },
+            '>' => .{
+                .type = Token.GT,
                 .literal = self.input[self.position..self.read_position],
             },
             ';' => .{
@@ -37,10 +92,6 @@ const Lexer = struct {
             },
             ',' => .{
                 .type = Token.COMMA,
-                .literal = self.input[self.position..self.read_position],
-            },
-            '+' => .{
-                .type = Token.PLUS,
                 .literal = self.input[self.position..self.read_position],
             },
             '{' => .{
@@ -85,6 +136,14 @@ const Lexer = struct {
         self.read_position += 1;
     }
 
+    fn peekCharacter(self: *Self) u8 {
+        if (self.read_position >= self.input.len) {
+            return 0;
+        } else {
+            return self.input[self.read_position];
+        }
+    }
+
     fn readIdentifier(self: *Self) []const u8 {
         const start_position = self.position;
         while (isLetter(self.character)) {
@@ -120,33 +179,7 @@ fn isDigit(character: u8) bool {
     return '0' <= character and character <= '9';
 }
 
-test "1.3 basic test" {
-    const testing = std.testing;
-
-    const input: []const u8 = "=+(){},;";
-
-    const expected_output = [_]Token{
-        .{ .type = Token.ASSIGN, .literal = "=" },
-        .{ .type = Token.PLUS, .literal = "+" },
-        .{ .type = Token.LPAREN, .literal = "(" },
-        .{ .type = Token.RPAREN, .literal = ")" },
-        .{ .type = Token.LBRACE, .literal = "{" },
-        .{ .type = Token.RBRACE, .literal = "}" },
-        .{ .type = Token.COMMA, .literal = "," },
-        .{ .type = Token.SEMICOLON, .literal = ";" },
-        .{ .type = Token.EOF, .literal = "" },
-    };
-
-    var lexer = Lexer.init(input);
-
-    for (expected_output) |expected_output_value| {
-        const output = lexer.nextToken();
-        try testing.expectEqualStrings(expected_output_value.type, output.type);
-        try testing.expectEqualStrings(expected_output_value.literal, output.literal);
-    }
-}
-
-test "1.3 extended test" {
+test "nextToken()" {
     const testing = std.testing;
 
     const input: []const u8 =
@@ -158,6 +191,17 @@ test "1.3 extended test" {
         \\};
         \\
         \\let result = add(five, ten);
+        \\!-/*5;
+        \\5 < 10 > 5;
+        \\
+        \\if (5 < 10) {
+        \\    return true;
+        \\} else {
+        \\    return false;
+        \\}
+        \\
+        \\10 == 10;
+        \\10 != 9;
     ;
 
     const expected_output = [_]Token{
@@ -196,6 +240,43 @@ test "1.3 extended test" {
         .{ .type = Token.COMMA, .literal = "," },
         .{ .type = Token.IDENT, .literal = "ten" },
         .{ .type = Token.RPAREN, .literal = ")" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.BANG, .literal = "!" },
+        .{ .type = Token.MINUS, .literal = "-" },
+        .{ .type = Token.SLASH, .literal = "/" },
+        .{ .type = Token.ASTERISK, .literal = "*" },
+        .{ .type = Token.INT, .literal = "5" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.INT, .literal = "5" },
+        .{ .type = Token.LT, .literal = "<" },
+        .{ .type = Token.INT, .literal = "10" },
+        .{ .type = Token.GT, .literal = ">" },
+        .{ .type = Token.INT, .literal = "5" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.IF, .literal = "if" },
+        .{ .type = Token.LPAREN, .literal = "(" },
+        .{ .type = Token.INT, .literal = "5" },
+        .{ .type = Token.LT, .literal = "<" },
+        .{ .type = Token.INT, .literal = "10" },
+        .{ .type = Token.RPAREN, .literal = ")" },
+        .{ .type = Token.LBRACE, .literal = "{" },
+        .{ .type = Token.RETURN, .literal = "return" },
+        .{ .type = Token.TRUE, .literal = "true" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.RBRACE, .literal = "}" },
+        .{ .type = Token.ELSE, .literal = "else" },
+        .{ .type = Token.LBRACE, .literal = "{" },
+        .{ .type = Token.RETURN, .literal = "return" },
+        .{ .type = Token.FALSE, .literal = "false" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.RBRACE, .literal = "}" },
+        .{ .type = Token.INT, .literal = "10" },
+        .{ .type = Token.EQ, .literal = "==" },
+        .{ .type = Token.INT, .literal = "10" },
+        .{ .type = Token.SEMICOLON, .literal = ";" },
+        .{ .type = Token.INT, .literal = "10" },
+        .{ .type = Token.NOT_EQ, .literal = "!=" },
+        .{ .type = Token.INT, .literal = "9" },
         .{ .type = Token.SEMICOLON, .literal = ";" },
         .{ .type = Token.EOF, .literal = "" },
     };
