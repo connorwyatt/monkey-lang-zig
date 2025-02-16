@@ -16,6 +16,7 @@ pub const Node = union(enum) {
 pub const Statement = union(enum) {
     program: Program,
     let_statement: LetStatement,
+    return_statement: ReturnStatement,
 
     pub fn tokenLiteral(self: *const Statement) []const u8 {
         return switch (self.*) {
@@ -79,6 +80,17 @@ pub const LetStatement = struct {
     }
 
     pub fn statementNode(_: *const LetStatement) void {}
+};
+
+pub const ReturnStatement = struct {
+    token: Token,
+    return_value: Expression,
+
+    pub fn tokenLiteral(self: *const ReturnStatement) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn statementNode(_: *const ReturnStatement) void {}
 };
 
 pub const Identifier = struct {

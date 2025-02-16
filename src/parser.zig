@@ -51,6 +51,9 @@ pub const Parser = struct {
         if (self.currentTokenIs(Token.LET)) {
             const let_statement = try self.parseLetStatement() orelse return null;
             return ast.Statement{ .let_statement = let_statement };
+        } else if (self.currentTokenIs(Token.RETURN)) {
+            const return_statement = try self.parseReturnStatement() orelse return null;
+            return ast.Statement{ .return_statement = return_statement };
         } else {
             return null;
         }
@@ -77,6 +80,16 @@ pub const Parser = struct {
         while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
 
         return ast.LetStatement{ .token = let_token, .name = name, .value = undefined };
+    }
+
+    fn parseReturnStatement(self: *Parser) !?ast.ReturnStatement {
+        const return_token = self.current_token;
+
+        self.nextToken();
+
+        while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
+
+        return ast.ReturnStatement{ .token = return_token, .return_value = undefined };
     }
 
     fn currentTokenIs(self: *const Parser, token_type: []const u8) bool {
@@ -150,5 +163,30 @@ test "LetStatements" {
     for (expected_statements, program.statements) |es, ps| {
         try testing.expectEqualStrings("let", ps.let_statement.tokenLiteral());
         try testing.expectEqualStrings(es.expected_identifier, ps.let_statement.name.value);
+    }
+}
+
+test "ReturnStatements" {
+    const testing = std.testing;
+
+    const input =
+        \\return 5;
+        \\return 10;
+        \\return 993322;
+    ;
+
+    var lexer = Lexer.init(input);
+    var parser = Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(3, program.statements.len);
+
+    for (program.statements) |ps| {
+        try testing.expectEqualStrings("return", ps.return_statement.tokenLiteral());
     }
 }
