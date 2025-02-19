@@ -46,6 +46,7 @@ pub const Statement = union(enum) {
 
 pub const Expression = union(enum) {
     identifier: Identifier,
+    integer_literal: IntegerLiteral,
 
     pub fn tokenLiteral(self: *const Expression) []const u8 {
         return switch (self.*) {
@@ -214,6 +215,21 @@ pub const Identifier = struct {
     }
 
     pub fn expressionNode(_: *const Identifier) void {}
+};
+
+pub const IntegerLiteral = struct {
+    token: Token,
+    value: i64,
+
+    pub fn tokenLiteral(self: *const IntegerLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(self: *const IntegerLiteral, allocator: Allocator) Allocator.Error![]const u8 {
+        return allocator.dupe(u8, self.token.literal);
+    }
+
+    pub fn expressionNode(_: *const IntegerLiteral) void {}
 };
 
 test "allocString()" {

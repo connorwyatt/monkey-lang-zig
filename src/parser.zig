@@ -24,6 +24,7 @@ pub const Parser = struct {
             .infix_parse_fns = std.StringHashMap(*const InfixParseFn).init(allocator),
         };
         try parser.registerPrefix(Token.IDENT, Parser.parseIdentifier);
+        try parser.registerPrefix(Token.INT, Parser.parseIntegerLiteral);
 
         // Read two tokens, so current_token and peek_token are both set.
         parser.nextToken();
@@ -152,11 +153,31 @@ pub const Parser = struct {
         return prefix_fn(self);
     }
 
-    fn parseIdentifier(self: *Parser) ast.Expression {
+    fn parseIdentifier(self: *Parser) ?ast.Expression {
         return .{
             .identifier = .{
                 .token = self.current_token,
                 .value = self.current_token.literal,
+            },
+        };
+    }
+
+    fn parseIntegerLiteral(self: *Parser) ?ast.Expression {
+        const value = std.fmt.parseInt(i64, self.current_token.literal, 10) catch {
+            // TODO: Work out if there is a nicer way to handle these errors.
+            const message = std.fmt.allocPrint(
+                self.allocator,
+                "could not parse {s} as an integer",
+                .{self.current_token.literal},
+            ) catch return null;
+            self.errors.append(message) catch return null;
+            return null;
+        };
+
+        return .{
+            .integer_literal = .{
+                .token = self.current_token,
+                .value = value,
             },
         };
     }
@@ -199,12 +220,12 @@ const Precedence = enum(u8) {
     CALL, // myFunction(X)
 };
 
-const PrefixParseFn = fn (parser: *Parser) ast.Expression;
+const PrefixParseFn = fn (parser: *Parser) ?ast.Expression;
 
 const InfixParseFn = fn (
     parser: *Parser,
     left_side: ast.Expression,
-) ast.Expression;
+) ?ast.Expression;
 
 fn expectNoParserErrors(parser: *const Parser) !void {
     const testing = std.testing;
@@ -302,4 +323,32 @@ test "IdentifierExpressions" {
 
     try testing.expectEqualStrings("foobar", identifier.value);
     try testing.expectEqualStrings("foobar", identifier.tokenLiteral());
+}
+
+test "IntegerLiteralExpression" {
+    const testing = std.testing;
+
+    const input = "5;";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement == .expression_statement);
+
+    const expression = statement.expression_statement.expression.?;
+    try testing.expect(expression == .integer_literal);
+
+    const integer_literal = expression.integer_literal;
+
+    try testing.expectEqual(5, integer_literal.value);
+    try testing.expectEqualStrings("5", integer_literal.tokenLiteral());
 }
