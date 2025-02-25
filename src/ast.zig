@@ -2,68 +2,142 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Token = @import("token.zig").Token;
 
-pub const Node = union(enum) {
-    statement: Statement,
-    expression: Expression,
+pub const Node = struct {
+    allocator: Allocator,
+    subtype: *const Subtype,
 
-    pub fn tokenLiteral(self: *const Node) []const u8 {
-        return switch (self.*) {
+    const Self = @This();
+
+    pub const Subtype = union(enum) {
+        statement: Statement,
+        expression: Expression,
+    };
+
+    pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
+        const subtype_ptr = try allocator.create(Subtype);
+        subtype_ptr.* = subtype;
+        return .{
+            .allocator = allocator,
+            .subtype = subtype_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) Self {
+        switch (self.subtype.*) {
+            inline else => |x| x.deinit(),
+        }
+        self.allocator.destroy(self.subtype);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return switch (self.subtype) {
             inline else => |x| x.tokenLiteral(),
         };
     }
 
-    pub fn allocString(self: *const Node, allocator: Allocator) Allocator.Error![]const u8 {
-        return switch (self.*) {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        return switch (self.subtype) {
             inline else => |x| x.allocString(allocator),
         };
     }
 };
 
-pub const Statement = union(enum) {
-    program: Program,
-    let_statement: LetStatement,
-    return_statement: ReturnStatement,
-    expression_statement: ExpressionStatement,
+pub const Statement = struct {
+    allocator: Allocator,
+    subtype: *const Subtype,
 
-    pub fn tokenLiteral(self: *const Statement) []const u8 {
-        return switch (self.*) {
+    const Self = @This();
+
+    pub const Subtype = union(enum) {
+        program: Program,
+        let_statement: LetStatement,
+        return_statement: ReturnStatement,
+        expression_statement: ExpressionStatement,
+    };
+
+    pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
+        const subtype_ptr = try allocator.create(Subtype);
+        subtype_ptr.* = subtype;
+        return .{
+            .allocator = allocator,
+            .subtype = subtype_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        switch (self.subtype.*) {
+            inline else => |x| x.deinit(),
+        }
+        self.allocator.destroy(self.subtype);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return switch (self.subtype.*) {
             inline else => |x| x.tokenLiteral(),
         };
     }
 
-    pub fn allocString(self: *const Statement, allocator: Allocator) Allocator.Error![]const u8 {
-        return switch (self.*) {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        return switch (self.subtype.*) {
             inline else => |x| x.allocString(allocator),
         };
     }
 
-    pub fn statementNode(self: *const Statement) void {
-        return switch (self.*) {
-            inline else => |x| x.statementNode(),
-        };
+    pub fn statementNode(self: *const Self) void {
+        _ = self;
     }
 };
 
-pub const Expression = union(enum) {
-    identifier: Identifier,
-    integer_literal: IntegerLiteral,
+pub const Expression = struct {
+    allocator: Allocator,
+    subtype: *const Subtype,
 
-    pub fn tokenLiteral(self: *const Expression) []const u8 {
-        return switch (self.*) {
+    const Self = @This();
+
+    pub const Subtype = union(enum) {
+        identifier: Identifier,
+        integer_literal: IntegerLiteral,
+    };
+
+    pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
+        const subtype_ptr = try allocator.create(Subtype);
+        subtype_ptr.* = subtype;
+        return .{
+            .allocator = allocator,
+            .subtype = subtype_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) Self {
+        switch (self.subtype.*) {
+            inline else => |x| x.deinit(),
+        }
+        self.allocator.destroy(self.subtype);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return switch (self.subtype.*) {
             inline else => |x| x.tokenLiteral(),
         };
     }
 
-    pub fn allocString(self: *const Expression, allocator: Allocator) Allocator.Error![]const u8 {
-        return switch (self.*) {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        return switch (self.subtype.*) {
             inline else => |x| x.allocString(allocator),
         };
     }
 
-    pub fn expressionNode(self: *const Expression) void {
-        return switch (self.*) {
-            inline else => |x| x.expressionNode(),
-        };
+    pub fn expressionNode(self: *const Self) void {
+        _ = self;
     }
 };
 
@@ -71,11 +145,26 @@ pub const Program = struct {
     allocator: Allocator,
     statements: []const Statement,
 
-    pub fn init(allocator: Allocator, statements: []const Statement) Program {
-        return .{ .allocator = allocator, .statements = statements };
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        statements: []const Statement,
+    ) Allocator.Error!Self {
+        return .{
+            .allocator = allocator,
+            .statements = try allocator.dupe(Statement, statements),
+        };
     }
 
-    pub fn tokenLiteral(self: *const Program) []const u8 {
+    pub fn deinit(self: *const Self) void {
+        for (self.statements) |statement| {
+            statement.deinit();
+        }
+        self.allocator.free(self.statements);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         if (self.statements.len > 0) {
             return self.statements[0].tokenLiteral();
         } else {
@@ -83,7 +172,10 @@ pub const Program = struct {
         }
     }
 
-    pub fn allocString(self: *const Program, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         var list = std.ArrayList(u8).init(allocator);
         defer list.deinit();
 
@@ -99,23 +191,50 @@ pub const Program = struct {
         return allocator.dupe(u8, list.items);
     }
 
-    pub fn statementNode(_: *const Program) void {}
-
-    pub fn deinit(self: *const Program) void {
-        self.allocator.free(self.statements);
+    pub fn statementNode(self: *const Self) void {
+        _ = self;
     }
 };
 
 pub const LetStatement = struct {
+    allocator: Allocator,
     token: Token,
-    name: Identifier,
-    value: ?Expression,
+    name: *const Identifier,
+    value: *const ?Expression,
 
-    pub fn tokenLiteral(self: *const LetStatement) []const u8 {
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        name: Identifier,
+        value: ?Expression,
+    ) Allocator.Error!Self {
+        const name_ptr = try allocator.create(Identifier);
+        name_ptr.* = name;
+        const value_ptr = try allocator.create(?Expression);
+        value_ptr.* = value;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .name = name_ptr,
+            .value = value_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.allocator.destroy(self.name);
+        self.allocator.destroy(self.value);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
 
-    pub fn allocString(self: *const LetStatement, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         var list = std.ArrayList(u8).init(allocator);
         defer list.deinit();
 
@@ -133,7 +252,7 @@ pub const LetStatement = struct {
         try writer.writeAll(" = ");
 
         // TODO: Remove this check once we're setting the field.
-        if (self.value) |value| {
+        if (self.value.*) |value| {
             const value_string = try value.allocString(allocator);
             defer allocator.free(value_string);
             try writer.writeAll(value_string);
@@ -144,18 +263,41 @@ pub const LetStatement = struct {
         return allocator.dupe(u8, list.items);
     }
 
-    pub fn statementNode(_: *const LetStatement) void {}
+    pub fn statementNode(_: *const Self) void {}
 };
 
 pub const ReturnStatement = struct {
+    allocator: Allocator,
     token: Token,
-    return_value: ?Expression,
+    return_value: *const ?Expression,
 
-    pub fn tokenLiteral(self: *const ReturnStatement) []const u8 {
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        return_value: ?Expression,
+    ) Allocator.Error!Self {
+        const return_value_ptr = try allocator.create(?Expression);
+        return_value_ptr.* = return_value;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .return_value = return_value_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.allocator.destroy(self.return_value);
+    }
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
 
-    pub fn allocString(self: *const ReturnStatement, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         var list = std.ArrayList(u8).init(allocator);
         defer list.deinit();
 
@@ -165,7 +307,7 @@ pub const ReturnStatement = struct {
         try writer.writeAll(" ");
 
         // TODO: Remove this check once we're setting the field.
-        if (self.return_value) |return_value| {
+        if (self.return_value.*) |return_value| {
             const return_value_string = try return_value.allocString(allocator);
             defer allocator.free(return_value_string);
             try writer.writeAll(return_value_string);
@@ -176,20 +318,46 @@ pub const ReturnStatement = struct {
         return allocator.dupe(u8, list.items);
     }
 
-    pub fn statementNode(_: *const ReturnStatement) void {}
+    pub fn statementNode(self: *const Self) void {
+        _ = self;
+    }
 };
 
 pub const ExpressionStatement = struct {
+    allocator: Allocator,
     token: Token,
-    expression: ?Expression,
+    expression: *const ?Expression,
 
-    pub fn tokenLiteral(self: *const ExpressionStatement) []const u8 {
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        expression: ?Expression,
+    ) Allocator.Error!Self {
+        const expression_ptr = try allocator.create(?Expression);
+        expression_ptr.* = expression;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .expression = expression_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.allocator.destroy(self.expression);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
 
-    pub fn allocString(self: *const ExpressionStatement, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         // TODO: Remove this check once we're setting the field.
-        if (self.expression) |expression| {
+        if (self.expression.*) |expression| {
             const expression_string = try expression.allocString(allocator);
             defer allocator.free(expression_string);
 
@@ -199,64 +367,119 @@ pub const ExpressionStatement = struct {
         }
     }
 
-    pub fn statementNode(_: *const ExpressionStatement) void {}
+    pub fn statementNode(self: *const Self) void {
+        _ = self;
+    }
 };
 
 pub const Identifier = struct {
+    allocator: Allocator,
     token: Token,
     value: []const u8,
 
-    pub fn tokenLiteral(self: *const Identifier) []const u8 {
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        value: []const u8,
+    ) Allocator.Error!Self {
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .value = try allocator.dupe(u8, value),
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.allocator.free(self.value);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
 
-    pub fn allocString(self: *const Identifier, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         return allocator.dupe(u8, self.value);
     }
 
-    pub fn expressionNode(_: *const Identifier) void {}
+    pub fn expressionNode(self: *const Self) void {
+        _ = self;
+    }
 };
 
 pub const IntegerLiteral = struct {
+    allocator: Allocator,
     token: Token,
     value: i64,
 
-    pub fn tokenLiteral(self: *const IntegerLiteral) []const u8 {
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        value: i64,
+    ) Allocator.Error!Self {
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .value = value,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        _ = self;
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
 
-    pub fn allocString(self: *const IntegerLiteral, allocator: Allocator) Allocator.Error![]const u8 {
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         return allocator.dupe(u8, self.token.literal);
     }
 
-    pub fn expressionNode(_: *const IntegerLiteral) void {}
+    pub fn expressionNode(_: *const Self) void {}
 };
 
-test "allocString()" {
+test "allocString" {
     const testing = std.testing;
 
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
     const statements = [_]Statement{
-        Statement{
-            .let_statement = LetStatement{
-                .token = Token{ .type = Token.LET, .literal = "let" },
-                .name = Identifier{
-                    .token = Token{ .type = Token.IDENT, .literal = "myVar" },
-                    .value = "myVar",
-                },
-                .value = Expression{
-                    .identifier = Identifier{
-                        .token = Token{ .type = Token.IDENT, .literal = "anotherVar" },
-                        .value = "anotherVar",
+        try Statement.init(arena.allocator(), .{
+            .let_statement = try LetStatement.init(
+                arena.allocator(),
+                Token{ .type = Token.LET, .literal = "let" },
+                try Identifier.init(
+                    arena.allocator(),
+                    Token{ .type = Token.IDENT, .literal = "myVar" },
+                    "myVar",
+                ),
+                try Expression.init(
+                    arena.allocator(),
+                    .{
+                        .identifier = try Identifier.init(
+                            arena.allocator(),
+                            Token{ .type = Token.IDENT, .literal = "anotherVar" },
+                            "anotherVar",
+                        ),
                     },
-                },
-            },
-        },
+                ),
+            ),
+        }),
     };
 
-    const program = Program{
-        .allocator = testing.allocator,
-        .statements = statements[0..],
-    };
+    const program = try Program.init(testing.allocator, statements[0..]);
+    defer program.deinit();
 
     const program_string = try program.allocString(testing.allocator);
     defer testing.allocator.free(program_string);
