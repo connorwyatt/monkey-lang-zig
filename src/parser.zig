@@ -87,16 +87,22 @@ pub const Parser = struct {
             const let_statement =
                 try self.parseLetStatement() orelse return null;
 
-            return .{ .let_statement = let_statement };
+            return try ast.Statement.init(self.allocator, .{
+                .let_statement = let_statement,
+            });
         } else if (self.currentTokenIs(Token.RETURN)) {
             const return_statement =
                 try self.parseReturnStatement() orelse return null;
 
-            return .{ .return_statement = return_statement };
+            return try ast.Statement.init(self.allocator, .{
+                .return_statement = return_statement,
+            });
         } else {
             const expression_statement = try self.parseExpressionStatement();
 
-            return .{ .expression_statement = expression_statement };
+            return try ast.Statement.init(self.allocator, .{
+                .expression_statement = expression_statement,
+            });
         }
     }
 
@@ -107,10 +113,11 @@ pub const Parser = struct {
             return null;
         }
 
-        const name = ast.Identifier{
-            .token = self.current_token,
-            .value = self.current_token.literal,
-        };
+        const name = try ast.Identifier.init(
+            self.allocator,
+            self.current_token,
+            self.current_token.literal,
+        );
 
         if (!try self.expectPeek(Token.ASSIGN)) {
             return null;
@@ -120,7 +127,12 @@ pub const Parser = struct {
 
         while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
 
-        return .{ .token = let_token, .name = name, .value = undefined };
+        return try ast.LetStatement.init(
+            self.allocator,
+            let_token,
+            name,
+            undefined,
+        );
     }
 
     fn parseReturnStatement(self: *Parser) !?ast.ReturnStatement {
@@ -130,7 +142,7 @@ pub const Parser = struct {
 
         while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
 
-        return .{ .token = return_token, .return_value = undefined };
+        return try ast.ReturnStatement.init(self.allocator, return_token, undefined);
     }
 
     fn parseExpressionStatement(self: *Parser) !ast.ExpressionStatement {
@@ -142,7 +154,11 @@ pub const Parser = struct {
             self.nextToken();
         }
 
-        return .{ .token = expression_token, .expression = expression };
+        return try ast.ExpressionStatement.init(
+            self.allocator,
+            expression_token,
+            expression,
+        );
     }
 
     fn parseExpression(self: *Parser, _: Precedence) !?ast.Expression {
@@ -153,16 +169,17 @@ pub const Parser = struct {
         return prefix_fn(self);
     }
 
-    fn parseIdentifier(self: *Parser) ?ast.Expression {
-        return .{
-            .identifier = .{
-                .token = self.current_token,
-                .value = self.current_token.literal,
-            },
-        };
+    fn parseIdentifier(self: *Parser) !?ast.Expression {
+        return try ast.Expression.init(self.allocator, .{
+            .identifier = try ast.Identifier.init(
+                self.allocator,
+                self.current_token,
+                self.current_token.literal,
+            ),
+        });
     }
 
-    fn parseIntegerLiteral(self: *Parser) ?ast.Expression {
+    fn parseIntegerLiteral(self: *Parser) !?ast.Expression {
         const value = std.fmt.parseInt(i64, self.current_token.literal, 10) catch {
             // TODO: Work out if there is a nicer way to handle these errors.
             const message = std.fmt.allocPrint(
@@ -174,12 +191,13 @@ pub const Parser = struct {
             return null;
         };
 
-        return .{
-            .integer_literal = .{
-                .token = self.current_token,
-                .value = value,
-            },
-        };
+        return try ast.Expression.init(self.allocator, .{
+            .integer_literal = try ast.IntegerLiteral.init(
+                self.allocator,
+                self.current_token,
+                value,
+            ),
+        });
     }
 
     fn currentTokenIs(self: *const Parser, token_type: []const u8) bool {
@@ -220,12 +238,12 @@ const Precedence = enum(u8) {
     CALL, // myFunction(X)
 };
 
-const PrefixParseFn = fn (parser: *Parser) ?ast.Expression;
+const PrefixParseFn = fn (parser: *Parser) Allocator.Error!?ast.Expression;
 
 const InfixParseFn = fn (
     parser: *Parser,
     left_side: ast.Expression,
-) ?ast.Expression;
+) Allocator.Error!?ast.Expression;
 
 fn expectNoParserErrors(parser: *const Parser) !void {
     const testing = std.testing;
@@ -261,10 +279,13 @@ test "LetStatements" {
     try testing.expectEqual(expected_statements.len, program.statements.len);
 
     for (expected_statements, program.statements) |es, ps| {
-        try testing.expectEqualStrings("let", ps.let_statement.tokenLiteral());
+        try testing.expectEqualStrings(
+            "let",
+            ps.subtype.let_statement.tokenLiteral(),
+        );
         try testing.expectEqualStrings(
             es.expected_identifier,
-            ps.let_statement.name.value,
+            ps.subtype.let_statement.name.value,
         );
     }
 }
@@ -292,7 +313,7 @@ test "ReturnStatements" {
     for (program.statements) |ps| {
         try testing.expectEqualStrings(
             "return",
-            ps.return_statement.tokenLiteral(),
+            ps.subtype.return_statement.tokenLiteral(),
         );
     }
 }
@@ -314,12 +335,12 @@ test "IdentifierExpressions" {
     try testing.expectEqual(1, program.statements.len);
 
     const statement = program.statements[0];
-    try testing.expect(statement == .expression_statement);
+    try testing.expect(statement.subtype.* == .expression_statement);
 
-    const expression = statement.expression_statement.expression.?;
-    try testing.expect(expression == .identifier);
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .identifier);
 
-    const identifier = expression.identifier;
+    const identifier = expression.subtype.identifier;
 
     try testing.expectEqualStrings("foobar", identifier.value);
     try testing.expectEqualStrings("foobar", identifier.tokenLiteral());
@@ -342,12 +363,12 @@ test "IntegerLiteralExpression" {
     try testing.expectEqual(1, program.statements.len);
 
     const statement = program.statements[0];
-    try testing.expect(statement == .expression_statement);
+    try testing.expect(statement.subtype.* == .expression_statement);
 
-    const expression = statement.expression_statement.expression.?;
-    try testing.expect(expression == .integer_literal);
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .integer_literal);
 
-    const integer_literal = expression.integer_literal;
+    const integer_literal = expression.subtype.integer_literal;
 
     try testing.expectEqual(5, integer_literal.value);
     try testing.expectEqualStrings("5", integer_literal.tokenLiteral());
