@@ -114,7 +114,7 @@ pub const Expression = struct {
         };
     }
 
-    pub fn deinit(self: *const Self) Self {
+    pub fn deinit(self: *const Self) void {
         switch (self.subtype.*) {
             inline else => |x| x.deinit(),
         }
@@ -223,7 +223,11 @@ pub const LetStatement = struct {
     }
 
     pub fn deinit(self: *const Self) void {
+        self.name.deinit();
         self.allocator.destroy(self.name);
+        if (self.value.*) |value| {
+            value.deinit();
+        }
         self.allocator.destroy(self.value);
     }
 
@@ -288,8 +292,12 @@ pub const ReturnStatement = struct {
     }
 
     pub fn deinit(self: *const Self) void {
+        if (self.return_value.*) |return_value| {
+            return_value.deinit();
+        }
         self.allocator.destroy(self.return_value);
     }
+
     pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.literal;
     }
@@ -345,6 +353,9 @@ pub const ExpressionStatement = struct {
     }
 
     pub fn deinit(self: *const Self) void {
+        if (self.expression.*) |expression| {
+            expression.deinit();
+        }
         self.allocator.destroy(self.expression);
     }
 

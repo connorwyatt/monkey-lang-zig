@@ -55,10 +55,7 @@ pub const Parser = struct {
             }
         }
 
-        const statement_items =
-            try allocator.dupe(ast.Statement, statements.items);
-
-        return ast.Program.init(allocator, statement_items);
+        return ast.Program.init(allocator, statements.items);
     }
 
     pub fn registerPrefix(
