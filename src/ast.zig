@@ -104,6 +104,7 @@ pub const Expression = struct {
         identifier: Identifier,
         integer_literal: IntegerLiteral,
         prefix_expression: PrefixExpression,
+        infix_expression: InfixExpression,
     };
 
     pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
@@ -506,6 +507,69 @@ pub const PrefixExpression = struct {
             allocator,
             "({s}{s})",
             .{ self.operator, right_string },
+        );
+    }
+
+    pub fn expressionNode(_: *const Self) void {}
+};
+
+pub const InfixExpression = struct {
+    allocator: Allocator,
+    token: Token,
+    left: *const ?Expression,
+    operator: []const u8,
+    right: *const ?Expression,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        left: ?Expression,
+        operator: []const u8,
+        right: ?Expression,
+    ) Allocator.Error!Self {
+        const left_ptr = try allocator.create(?Expression);
+        left_ptr.* = left;
+        const right_ptr = try allocator.create(?Expression);
+        right_ptr.* = right;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .left = left_ptr,
+            .operator = try allocator.dupe(u8, operator),
+            .right = right_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        if (self.left.*) |left| {
+            left.deinit();
+        }
+        self.allocator.destroy(self.left);
+        self.allocator.free(self.operator);
+        if (self.right.*) |right| {
+            right.deinit();
+        }
+        self.allocator.destroy(self.right);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        const left_string = try self.left.*.?.allocString(allocator);
+        defer allocator.free(left_string);
+        const right_string = try self.right.*.?.allocString(allocator);
+        defer allocator.free(right_string);
+        return try std.fmt.allocPrint(
+            allocator,
+            "({s} {s} {s})",
+            .{ left_string, self.operator, right_string },
         );
     }
 

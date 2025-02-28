@@ -28,6 +28,15 @@ pub const Parser = struct {
         try parser.registerPrefix(Token.BANG, Parser.parsePrefixExpression);
         try parser.registerPrefix(Token.MINUS, Parser.parsePrefixExpression);
 
+        try parser.registerInfix(Token.PLUS, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.MINUS, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.SLASH, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.ASTERISK, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.EQ, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.NOT_EQ, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.LT, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.GT, Parser.parseInfixExpression);
+
         // Read two tokens, so current_token and peek_token are both set.
         parser.nextToken();
         parser.nextToken();
@@ -72,7 +81,7 @@ pub const Parser = struct {
         self: *Parser,
         token_type: []const u8,
         infix_parse_fn: InfixParseFn,
-    ) void {
+    ) !void {
         try self.infix_parse_fns.putNoClobber(token_type, infix_parse_fn);
     }
 
@@ -161,14 +170,27 @@ pub const Parser = struct {
     }
 
     fn parseExpression(self: *Parser, precedence: Precedence) !?ast.Expression {
-        _ = precedence;
         const prefix_fn =
             self.prefix_parse_fns.get(self.current_token.type) orelse {
             try self.noPrefixParseFnError(self.current_token.type);
             return null;
         };
 
-        return prefix_fn(self);
+        var left = try prefix_fn(self);
+
+        while (!self.peekTokenIs(Token.SEMICOLON) and
+            @intFromEnum(precedence) < @intFromEnum(self.peekTokenPrecedence()))
+        {
+            const infix_fn = self.infix_parse_fns.get(self.peek_token.type) orelse {
+                return left;
+            };
+
+            self.nextToken();
+
+            left = try infix_fn(self, left.?);
+        }
+
+        return left;
     }
 
     fn parseIdentifier(self: *Parser) !?ast.Expression {
@@ -221,6 +243,28 @@ pub const Parser = struct {
         });
     }
 
+    fn parseInfixExpression(
+        self: *Parser,
+        left: ast.Expression,
+    ) Allocator.Error!ast.Expression {
+        const operator_token = self.current_token;
+        const precedence = self.currentTokenPrecedence();
+
+        self.nextToken();
+
+        const right = try self.parseExpression(precedence);
+
+        return ast.Expression.init(self.allocator, .{
+            .infix_expression = try ast.InfixExpression.init(
+                self.allocator,
+                operator_token,
+                left,
+                operator_token.literal,
+                right,
+            ),
+        });
+    }
+
     fn currentTokenIs(self: *const Parser, token_type: []const u8) bool {
         return std.mem.eql(u8, self.current_token.type, token_type);
     }
@@ -237,6 +281,16 @@ pub const Parser = struct {
             try self.peekError(token_type);
             return false;
         }
+    }
+
+    fn currentTokenPrecedence(self: *Parser) Precedence {
+        return precedenceForTokenType(self.current_token.type) orelse
+            Precedence.LOWEST;
+    }
+
+    fn peekTokenPrecedence(self: *Parser) Precedence {
+        return precedenceForTokenType(self.peek_token.type) orelse
+            Precedence.LOWEST;
     }
 
     fn peekError(self: *Parser, token_type: []const u8) Allocator.Error!void {
@@ -271,18 +325,46 @@ const Precedence = enum(u8) {
     CALL, // myFunction(X)
 };
 
+fn precedenceForTokenType(token_type: []const u8) ?Precedence {
+    if (std.mem.eql(u8, token_type, Token.EQ)) {
+        return Precedence.EQUALS;
+    } else if (std.mem.eql(u8, token_type, Token.NOT_EQ)) {
+        return Precedence.EQUALS;
+    } else if (std.mem.eql(u8, token_type, Token.LT)) {
+        return Precedence.LESSGREATER;
+    } else if (std.mem.eql(u8, token_type, Token.GT)) {
+        return Precedence.LESSGREATER;
+    } else if (std.mem.eql(u8, token_type, Token.PLUS)) {
+        return Precedence.SUM;
+    } else if (std.mem.eql(u8, token_type, Token.MINUS)) {
+        return Precedence.SUM;
+    } else if (std.mem.eql(u8, token_type, Token.SLASH)) {
+        return Precedence.PRODUCT;
+    } else if (std.mem.eql(u8, token_type, Token.ASTERISK)) {
+        return Precedence.PRODUCT;
+    } else {
+        return null;
+    }
+}
+
 const PrefixParseFn = fn (parser: *Parser) Allocator.Error!?ast.Expression;
 
 const InfixParseFn = fn (
     parser: *Parser,
-    left_side: ast.Expression,
-) Allocator.Error!?ast.Expression;
+    left: ast.Expression,
+) Allocator.Error!ast.Expression;
 
 fn expectNoParserErrors(parser: *const Parser) !void {
     const testing = std.testing;
     const errors = parser.errors.items;
 
-    try testing.expectEqual(0, errors.len);
+    testing.expectEqual(0, errors.len) catch |expect_error| {
+        std.debug.print("Messages:\n", .{});
+        for (errors) |e| {
+            std.debug.print("  - {s}\n", .{e});
+        }
+        return expect_error;
+    };
 }
 
 fn expectIntegerLiteral(
@@ -463,5 +545,126 @@ test "PrefixExpression" {
         );
 
         try expectIntegerLiteral(&prefix_expression.right.*.?, test_case.integer_value);
+    }
+}
+
+test "InfixExpression" {
+    const testing = std.testing;
+
+    const test_cases = [_]struct {
+        input: []const u8,
+        left_value: i64,
+        operator: []const u8,
+        right_value: i64,
+    }{
+        .{ .input = "5 + 5;", .left_value = 5, .operator = "+", .right_value = 5 },
+        .{ .input = "5 - 5;", .left_value = 5, .operator = "-", .right_value = 5 },
+        .{ .input = "5 * 5;", .left_value = 5, .operator = "*", .right_value = 5 },
+        .{ .input = "5 / 5;", .left_value = 5, .operator = "/", .right_value = 5 },
+        .{ .input = "5 > 5;", .left_value = 5, .operator = ">", .right_value = 5 },
+        .{ .input = "5 < 5;", .left_value = 5, .operator = "<", .right_value = 5 },
+        .{ .input = "5 == 5;", .left_value = 5, .operator = "==", .right_value = 5 },
+        .{ .input = "5 != 5;", .left_value = 5, .operator = "!=", .right_value = 5 },
+    };
+
+    for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
+
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
+
+        try expectNoParserErrors(&parser);
+
+        try testing.expectEqual(1, program.statements.len);
+
+        const statement = program.statements[0];
+        try testing.expect(statement.subtype.* == .expression_statement);
+
+        const expression = statement.subtype.expression_statement.expression.*.?;
+        try testing.expect(expression.subtype.* == .infix_expression);
+
+        const infix_expression = expression.subtype.infix_expression;
+
+        try expectIntegerLiteral(&infix_expression.left.*.?, test_case.left_value);
+
+        try testing.expectEqualStrings(
+            test_case.operator,
+            infix_expression.operator,
+        );
+
+        try expectIntegerLiteral(&infix_expression.right.*.?, test_case.right_value);
+    }
+}
+
+test "OperatorPrecedenceParsing" {
+    const testing = std.testing;
+
+    const test_cases = [_]struct { input: []const u8, expected: []const u8 }{
+        .{
+            .input = "-a * b",
+            .expected = "((-a) * b)",
+        },
+        .{
+            .input = "!-a",
+            .expected = "(!(-a))",
+        },
+        .{
+            .input = "a + b + c",
+            .expected = "((a + b) + c)",
+        },
+        .{
+            .input = "a + b - c",
+            .expected = "((a + b) - c)",
+        },
+        .{
+            .input = "a * b * c",
+            .expected = "((a * b) * c)",
+        },
+        .{
+            .input = "a * b / c",
+            .expected = "((a * b) / c)",
+        },
+        .{
+            .input = "a + b / c",
+            .expected = "(a + (b / c))",
+        },
+        .{
+            .input = "a + b * c + d / e - f",
+            .expected = "(((a + (b * c)) + (d / e)) - f)",
+        },
+        .{
+            .input = "3 + 4; -5 * 5",
+            .expected = "(3 + 4)((-5) * 5)",
+        },
+        .{
+            .input = "5 > 4 == 3 < 4",
+            .expected = "((5 > 4) == (3 < 4))",
+        },
+        .{
+            .input = "5 < 4 != 3 > 4",
+            .expected = "((5 < 4) != (3 > 4))",
+        },
+        .{
+            .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
+            .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+        },
+    };
+
+    for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
+
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
+
+        try expectNoParserErrors(&parser);
+
+        const program_string = try program.allocString(testing.allocator);
+        defer testing.allocator.free(program_string);
+
+        try testing.expectEqualStrings(test_case.expected, program_string);
     }
 }
