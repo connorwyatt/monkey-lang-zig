@@ -25,6 +25,8 @@ pub const Parser = struct {
         };
         try parser.registerPrefix(Token.IDENT, Parser.parseIdentifier);
         try parser.registerPrefix(Token.INT, Parser.parseIntegerLiteral);
+        try parser.registerPrefix(Token.BANG, Parser.parsePrefixExpression);
+        try parser.registerPrefix(Token.MINUS, Parser.parsePrefixExpression);
 
         // Read two tokens, so current_token and peek_token are both set.
         parser.nextToken();
@@ -158,10 +160,13 @@ pub const Parser = struct {
         );
     }
 
-    fn parseExpression(self: *Parser, _: Precedence) !?ast.Expression {
+    fn parseExpression(self: *Parser, precedence: Precedence) !?ast.Expression {
+        _ = precedence;
         const prefix_fn =
-            self.prefix_parse_fns.get(self.current_token.type) orelse
+            self.prefix_parse_fns.get(self.current_token.type) orelse {
+            try self.noPrefixParseFnError(self.current_token.type);
             return null;
+        };
 
         return prefix_fn(self);
     }
@@ -197,6 +202,25 @@ pub const Parser = struct {
         });
     }
 
+    fn parsePrefixExpression(self: *Parser) !?ast.Expression {
+        const prefix_expression_token = self.current_token;
+
+        self.nextToken();
+
+        const expression = try self.parseExpression(.PREFIX);
+
+        const prefix_expression = try ast.PrefixExpression.init(
+            self.allocator,
+            prefix_expression_token,
+            prefix_expression_token.literal,
+            expression,
+        );
+
+        return try ast.Expression.init(self.allocator, .{
+            .prefix_expression = prefix_expression,
+        });
+    }
+
     fn currentTokenIs(self: *const Parser, token_type: []const u8) bool {
         return std.mem.eql(u8, self.current_token.type, token_type);
     }
@@ -215,11 +239,23 @@ pub const Parser = struct {
         }
     }
 
-    fn peekError(self: *Parser, token_type: []const u8) !void {
+    fn peekError(self: *Parser, token_type: []const u8) Allocator.Error!void {
         const message = try std.fmt.allocPrint(
             self.allocator,
             "expected next token to be {s}, found {s} instead",
             .{ token_type, self.peek_token.type },
+        );
+        try self.errors.append(message);
+    }
+
+    fn noPrefixParseFnError(
+        self: *Parser,
+        token_type: []const u8,
+    ) Allocator.Error!void {
+        const message = try std.fmt.allocPrint(
+            self.allocator,
+            "no prefix parse function for {s} found",
+            .{token_type},
         );
         try self.errors.append(message);
     }
@@ -247,6 +283,29 @@ fn expectNoParserErrors(parser: *const Parser) !void {
     const errors = parser.errors.items;
 
     try testing.expectEqual(0, errors.len);
+}
+
+fn expectIntegerLiteral(
+    expression: *const ast.Expression,
+    expected_value: i64,
+) !void {
+    const testing = std.testing;
+
+    try testing.expect(expression.subtype.* == .integer_literal);
+
+    const integer_literal = expression.subtype.integer_literal;
+
+    try testing.expectEqual(expected_value, integer_literal.value);
+    var buf: [2]u8 = undefined;
+    const expected_token_literal = try std.fmt.bufPrint(
+        &buf,
+        "{}",
+        .{expected_value},
+    );
+    try testing.expectEqualStrings(
+        expected_token_literal,
+        integer_literal.tokenLiteral(),
+    );
 }
 
 test "LetStatements" {
@@ -363,10 +422,46 @@ test "IntegerLiteralExpression" {
     try testing.expect(statement.subtype.* == .expression_statement);
 
     const expression = statement.subtype.expression_statement.expression.*.?;
-    try testing.expect(expression.subtype.* == .integer_literal);
+    try expectIntegerLiteral(&expression, 5);
+}
 
-    const integer_literal = expression.subtype.integer_literal;
+test "PrefixExpression" {
+    const testing = std.testing;
 
-    try testing.expectEqual(5, integer_literal.value);
-    try testing.expectEqualStrings("5", integer_literal.tokenLiteral());
+    const test_cases = [_]struct {
+        input: []const u8,
+        operator: []const u8,
+        integer_value: i64,
+    }{
+        .{ .input = "!5;", .operator = "!", .integer_value = 5 },
+        .{ .input = "-15;", .operator = "-", .integer_value = 15 },
+    };
+
+    for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
+
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
+
+        try expectNoParserErrors(&parser);
+
+        try testing.expectEqual(1, program.statements.len);
+
+        const statement = program.statements[0];
+        try testing.expect(statement.subtype.* == .expression_statement);
+
+        const expression = statement.subtype.expression_statement.expression.*.?;
+        try testing.expect(expression.subtype.* == .prefix_expression);
+
+        const prefix_expression = expression.subtype.prefix_expression;
+
+        try testing.expectEqualStrings(
+            test_case.operator,
+            prefix_expression.operator,
+        );
+
+        try expectIntegerLiteral(&prefix_expression.right.*.?, test_case.integer_value);
+    }
 }

@@ -103,6 +103,7 @@ pub const Expression = struct {
     pub const Subtype = union(enum) {
         identifier: Identifier,
         integer_literal: IntegerLiteral,
+        prefix_expression: PrefixExpression,
     };
 
     pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
@@ -454,6 +455,58 @@ pub const IntegerLiteral = struct {
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return allocator.dupe(u8, self.token.literal);
+    }
+
+    pub fn expressionNode(_: *const Self) void {}
+};
+
+pub const PrefixExpression = struct {
+    allocator: Allocator,
+    token: Token,
+    operator: []const u8,
+    right: *const ?Expression,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        operator: []const u8,
+        right: ?Expression,
+    ) Allocator.Error!Self {
+        const right_ptr = try allocator.create(?Expression);
+        right_ptr.* = right;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .operator = try allocator.dupe(u8, operator),
+            .right = right_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.allocator.free(self.operator);
+        if (self.right.*) |right| {
+            right.deinit();
+        }
+        self.allocator.destroy(self.right);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        const right_string = try self.right.*.?.allocString(allocator);
+        defer allocator.free(right_string);
+        return try std.fmt.allocPrint(
+            allocator,
+            "({s}{s})",
+            .{ self.operator, right_string },
+        );
     }
 
     pub fn expressionNode(_: *const Self) void {}
