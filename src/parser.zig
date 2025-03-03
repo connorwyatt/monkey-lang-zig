@@ -25,8 +25,11 @@ pub const Parser = struct {
         };
         try parser.registerPrefix(Token.IDENT, Parser.parseIdentifier);
         try parser.registerPrefix(Token.INT, Parser.parseIntegerLiteral);
+        try parser.registerPrefix(Token.TRUE, Parser.parseBoolean);
+        try parser.registerPrefix(Token.FALSE, Parser.parseBoolean);
         try parser.registerPrefix(Token.BANG, Parser.parsePrefixExpression);
         try parser.registerPrefix(Token.MINUS, Parser.parsePrefixExpression);
+        try parser.registerPrefix(Token.LPAREN, Parser.parseGroupedExpression);
 
         try parser.registerInfix(Token.PLUS, Parser.parseInfixExpression);
         try parser.registerInfix(Token.MINUS, Parser.parseInfixExpression);
@@ -224,6 +227,19 @@ pub const Parser = struct {
         });
     }
 
+    fn parseBoolean(self: *Parser) !?ast.Expression {
+        return try ast.Expression.init(
+            self.allocator,
+            .{
+                .boolean = try ast.Boolean.init(
+                    self.allocator,
+                    self.current_token,
+                    self.currentTokenIs(Token.TRUE),
+                ),
+            },
+        );
+    }
+
     fn parsePrefixExpression(self: *Parser) !?ast.Expression {
         const prefix_expression_token = self.current_token;
 
@@ -241,6 +257,18 @@ pub const Parser = struct {
         return try ast.Expression.init(self.allocator, .{
             .prefix_expression = prefix_expression,
         });
+    }
+
+    fn parseGroupedExpression(self: *Parser) !?ast.Expression {
+        self.nextToken();
+
+        const expression = self.parseExpression(.LOWEST);
+
+        if (!try self.expectPeek(Token.RPAREN)) {
+            return null;
+        }
+
+        return expression;
     }
 
     fn parseInfixExpression(
@@ -404,6 +432,25 @@ fn expectIntegerLiteral(
     );
 }
 
+fn expectBoolean(
+    expression: *const ast.Expression,
+    expected_value: bool,
+) !void {
+    const testing = std.testing;
+
+    try testing.expect(expression.subtype.* == .boolean);
+
+    const boolean = expression.subtype.boolean;
+
+    try testing.expectEqual(expected_value, boolean.value);
+
+    const expected_token_literal = if (expected_value) "true" else "false";
+    try testing.expectEqualStrings(
+        expected_token_literal,
+        boolean.tokenLiteral(),
+    );
+}
+
 fn expectLiteralExpression(
     expression: *const ast.Expression,
     expected: anytype,
@@ -417,6 +464,9 @@ fn expectLiteralExpression(
             try testing.expectEqual(64, x.bits);
             try testing.expectEqual(std.builtin.Signedness.signed, x.signedness);
             try expectIntegerLiteral(expression, expected);
+        },
+        .Bool => {
+            try expectBoolean(expression, expected);
         },
         .Pointer => |x| {
             try testing.expect(x.is_const);
@@ -572,54 +622,97 @@ test "IntegerLiteralExpression" {
     try expectIntegerLiteral(&expression, 5);
 }
 
+test "BooleanExpression" {
+    const testing = std.testing;
+
+    const input = "true;";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement.subtype.* == .expression_statement);
+
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try expectBoolean(&expression, true);
+}
+
 test "PrefixExpression" {
     const testing = std.testing;
 
-    const test_cases = [_]struct {
+    const int_test_cases = [_]struct {
         input: []const u8,
         operator: []const u8,
-        integer_value: i64,
+        value: i64,
     }{
-        .{ .input = "!5;", .operator = "!", .integer_value = 5 },
-        .{ .input = "-15;", .operator = "-", .integer_value = 15 },
+        .{ .input = "!5;", .operator = "!", .value = 5 },
+        .{ .input = "-15;", .operator = "-", .value = 15 },
     };
 
-    inline for (test_cases) |test_case| {
-        var lexer = Lexer.init(test_case.input);
-        var parser = try Parser.init(testing.allocator, &lexer);
-        defer parser.deinit();
+    const bool_test_cases = [_]struct {
+        input: []const u8,
+        operator: []const u8,
+        value: bool,
+    }{
+        .{ .input = "!true;", .operator = "!", .value = true },
+        .{ .input = "!false;", .operator = "!", .value = false },
+    };
 
-        const program = try parser.allocParseProgram(testing.allocator);
-        defer program.deinit();
+    const handleTestCase = struct {
+        fn handleTestCase(
+            input: []const u8,
+            operator: []const u8,
+            value: anytype,
+        ) !void {
+            var lexer = Lexer.init(input);
+            var parser = try Parser.init(testing.allocator, &lexer);
+            defer parser.deinit();
 
-        try expectNoParserErrors(&parser);
+            const program = try parser.allocParseProgram(testing.allocator);
+            defer program.deinit();
 
-        try testing.expectEqual(1, program.statements.len);
+            try expectNoParserErrors(&parser);
 
-        const statement = program.statements[0];
-        try testing.expect(statement.subtype.* == .expression_statement);
+            try testing.expectEqual(1, program.statements.len);
 
-        const expression = statement.subtype.expression_statement.expression.*.?;
-        try testing.expect(expression.subtype.* == .prefix_expression);
+            const statement = program.statements[0];
+            try testing.expect(statement.subtype.* == .expression_statement);
 
-        const prefix_expression = expression.subtype.prefix_expression;
+            const expression = statement.subtype.expression_statement.expression.*.?;
+            try testing.expect(expression.subtype.* == .prefix_expression);
 
-        try testing.expectEqualStrings(
-            test_case.operator,
-            prefix_expression.operator,
-        );
+            const prefix_expression = expression.subtype.prefix_expression;
 
-        try expectIntegerLiteral(
-            &prefix_expression.right.*.?,
-            test_case.integer_value,
-        );
+            try testing.expectEqualStrings(
+                operator,
+                prefix_expression.operator,
+            );
+
+            try expectLiteralExpression(&prefix_expression.right.*.?, value);
+        }
+    }.handleTestCase;
+
+    inline for (int_test_cases) |test_case| {
+        try handleTestCase(test_case.input, test_case.operator, test_case.value);
+    }
+
+    inline for (bool_test_cases) |test_case| {
+        try handleTestCase(test_case.input, test_case.operator, test_case.value);
     }
 }
 
 test "InfixExpression" {
     const testing = std.testing;
 
-    const test_cases = [_]struct {
+    const int_test_cases = [_]struct {
         input: []const u8,
         left_value: i64,
         operator: []const u8,
@@ -635,25 +728,61 @@ test "InfixExpression" {
         .{ .input = "5 != 5;", .left_value = 5, .operator = "!=", .right_value = 5 },
     };
 
-    inline for (test_cases) |test_case| {
-        var lexer = Lexer.init(test_case.input);
-        var parser = try Parser.init(testing.allocator, &lexer);
-        defer parser.deinit();
+    const bool_test_cases = [_]struct {
+        input: []const u8,
+        left_value: bool,
+        operator: []const u8,
+        right_value: bool,
+    }{
+        .{ .input = "true == true", .left_value = true, .operator = "==", .right_value = true },
+        .{ .input = "true != false", .left_value = true, .operator = "!=", .right_value = false },
+        .{ .input = "false == false", .left_value = false, .operator = "==", .right_value = false },
+    };
 
-        const program = try parser.allocParseProgram(testing.allocator);
-        defer program.deinit();
+    const handleTestCase = struct {
+        fn handleTestCase(
+            input: []const u8,
+            left_value: anytype,
+            operator: []const u8,
+            right_value: @TypeOf(left_value),
+        ) !void {
+            var lexer = Lexer.init(input);
+            var parser = try Parser.init(testing.allocator, &lexer);
+            defer parser.deinit();
 
-        try expectNoParserErrors(&parser);
+            const program = try parser.allocParseProgram(testing.allocator);
+            defer program.deinit();
 
-        try testing.expectEqual(1, program.statements.len);
+            try expectNoParserErrors(&parser);
 
-        const statement = program.statements[0];
-        try testing.expect(statement.subtype.* == .expression_statement);
+            try testing.expectEqual(1, program.statements.len);
 
-        const expression = statement.subtype.expression_statement.expression.*.?;
+            const statement = program.statements[0];
+            try testing.expect(statement.subtype.* == .expression_statement);
 
-        try expectInfixExpression(
-            &expression,
+            const expression = statement.subtype.expression_statement.expression.*.?;
+
+            try expectInfixExpression(
+                &expression,
+                left_value,
+                operator,
+                right_value,
+            );
+        }
+    }.handleTestCase;
+
+    inline for (int_test_cases) |test_case| {
+        try handleTestCase(
+            test_case.input,
+            test_case.left_value,
+            test_case.operator,
+            test_case.right_value,
+        );
+    }
+
+    inline for (bool_test_cases) |test_case| {
+        try handleTestCase(
+            test_case.input,
             test_case.left_value,
             test_case.operator,
             test_case.right_value,
@@ -712,6 +841,42 @@ test "OperatorPrecedenceParsing" {
         .{
             .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
             .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+        },
+        .{
+            .input = "true",
+            .expected = "true",
+        },
+        .{
+            .input = "false",
+            .expected = "false",
+        },
+        .{
+            .input = "3 > 5 == false",
+            .expected = "((3 > 5) == false)",
+        },
+        .{
+            .input = "3 < 5 == true",
+            .expected = "((3 < 5) == true)",
+        },
+        .{
+            .input = "1 + (2 + 3) + 4",
+            .expected = "((1 + (2 + 3)) + 4)",
+        },
+        .{
+            .input = "(5 + 5) * 2",
+            .expected = "((5 + 5) * 2)",
+        },
+        .{
+            .input = "2 / (5 + 5)",
+            .expected = "(2 / (5 + 5))",
+        },
+        .{
+            .input = "-(5 + 5)",
+            .expected = "(-(5 + 5))",
+        },
+        .{
+            .input = "!(true == true)",
+            .expected = "(!(true == true))",
         },
     };
 

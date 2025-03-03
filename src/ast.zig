@@ -103,6 +103,7 @@ pub const Expression = struct {
     pub const Subtype = union(enum) {
         identifier: Identifier,
         integer_literal: IntegerLiteral,
+        boolean: Boolean,
         prefix_expression: PrefixExpression,
         infix_expression: InfixExpression,
     };
@@ -435,6 +436,43 @@ pub const IntegerLiteral = struct {
         allocator: Allocator,
         token: Token,
         value: i64,
+    ) Allocator.Error!Self {
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .value = value,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        _ = self;
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        return allocator.dupe(u8, self.token.literal);
+    }
+
+    pub fn expressionNode(_: *const Self) void {}
+};
+
+pub const Boolean = struct {
+    allocator: Allocator,
+    token: Token,
+    value: bool,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        value: bool,
     ) Allocator.Error!Self {
         return .{
             .allocator = allocator,
