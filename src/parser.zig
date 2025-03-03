@@ -367,6 +367,20 @@ fn expectNoParserErrors(parser: *const Parser) !void {
     };
 }
 
+fn expectIdentifier(
+    expression: *const ast.Expression,
+    expected_value: []const u8,
+) !void {
+    const testing = std.testing;
+
+    try testing.expect(expression.subtype.* == .identifier);
+
+    const identifier = expression.subtype.identifier;
+
+    try testing.expectEqualStrings(expected_value, identifier.value);
+    try testing.expectEqualStrings(expected_value, identifier.tokenLiteral());
+}
+
 fn expectIntegerLiteral(
     expression: *const ast.Expression,
     expected_value: i64,
@@ -388,6 +402,62 @@ fn expectIntegerLiteral(
         expected_token_literal,
         integer_literal.tokenLiteral(),
     );
+}
+
+fn expectLiteralExpression(
+    expression: *const ast.Expression,
+    expected: anytype,
+) !void {
+    const testing = std.testing;
+
+    const type_of = @TypeOf(expected);
+    const type_info = @typeInfo(type_of);
+    switch (type_info) {
+        .Int => |x| {
+            try testing.expectEqual(64, x.bits);
+            try testing.expectEqual(std.builtin.Signedness.signed, x.signedness);
+            try expectIntegerLiteral(expression, expected);
+        },
+        .Pointer => |x| {
+            try testing.expect(x.is_const);
+            const child_type_info = @typeInfo(x.child);
+            switch (child_type_info) {
+                .Int => |y| {
+                    try testing.expectEqual(8, y.bits);
+                    try testing.expectEqual(
+                        std.builtin.Signedness.unsigned,
+                        y.signedness,
+                    );
+                    try expectIdentifier(expression, expected);
+                },
+                else => {
+                    return error.InvalidType;
+                },
+            }
+        },
+        else => {
+            return error.InvalidType;
+        },
+    }
+}
+
+fn expectInfixExpression(
+    expression: *const ast.Expression,
+    left: anytype,
+    operator: []const u8,
+    right: @TypeOf(left),
+) !void {
+    const testing = std.testing;
+
+    try testing.expect(expression.subtype.* == .infix_expression);
+
+    const infix_expression = expression.subtype.infix_expression;
+
+    try expectLiteralExpression(&infix_expression.left.*.?, left);
+
+    try testing.expectEqualStrings(operator, infix_expression.operator);
+
+    try expectLiteralExpression(&infix_expression.right.*.?, right);
 }
 
 test "LetStatements" {
@@ -416,7 +486,7 @@ test "LetStatements" {
 
     try testing.expectEqual(expected_statements.len, program.statements.len);
 
-    for (expected_statements, program.statements) |es, ps| {
+    inline for (expected_statements, program.statements) |es, ps| {
         try testing.expectEqualStrings(
             "let",
             ps.subtype.let_statement.tokenLiteral(),
@@ -476,12 +546,7 @@ test "IdentifierExpressions" {
     try testing.expect(statement.subtype.* == .expression_statement);
 
     const expression = statement.subtype.expression_statement.expression.*.?;
-    try testing.expect(expression.subtype.* == .identifier);
-
-    const identifier = expression.subtype.identifier;
-
-    try testing.expectEqualStrings("foobar", identifier.value);
-    try testing.expectEqualStrings("foobar", identifier.tokenLiteral());
+    try expectIdentifier(&expression, "foobar");
 }
 
 test "IntegerLiteralExpression" {
@@ -519,7 +584,7 @@ test "PrefixExpression" {
         .{ .input = "-15;", .operator = "-", .integer_value = 15 },
     };
 
-    for (test_cases) |test_case| {
+    inline for (test_cases) |test_case| {
         var lexer = Lexer.init(test_case.input);
         var parser = try Parser.init(testing.allocator, &lexer);
         defer parser.deinit();
@@ -544,7 +609,10 @@ test "PrefixExpression" {
             prefix_expression.operator,
         );
 
-        try expectIntegerLiteral(&prefix_expression.right.*.?, test_case.integer_value);
+        try expectIntegerLiteral(
+            &prefix_expression.right.*.?,
+            test_case.integer_value,
+        );
     }
 }
 
@@ -567,7 +635,7 @@ test "InfixExpression" {
         .{ .input = "5 != 5;", .left_value = 5, .operator = "!=", .right_value = 5 },
     };
 
-    for (test_cases) |test_case| {
+    inline for (test_cases) |test_case| {
         var lexer = Lexer.init(test_case.input);
         var parser = try Parser.init(testing.allocator, &lexer);
         defer parser.deinit();
@@ -583,18 +651,13 @@ test "InfixExpression" {
         try testing.expect(statement.subtype.* == .expression_statement);
 
         const expression = statement.subtype.expression_statement.expression.*.?;
-        try testing.expect(expression.subtype.* == .infix_expression);
 
-        const infix_expression = expression.subtype.infix_expression;
-
-        try expectIntegerLiteral(&infix_expression.left.*.?, test_case.left_value);
-
-        try testing.expectEqualStrings(
+        try expectInfixExpression(
+            &expression,
+            test_case.left_value,
             test_case.operator,
-            infix_expression.operator,
+            test_case.right_value,
         );
-
-        try expectIntegerLiteral(&infix_expression.right.*.?, test_case.right_value);
     }
 }
 
@@ -652,7 +715,7 @@ test "OperatorPrecedenceParsing" {
         },
     };
 
-    for (test_cases) |test_case| {
+    inline for (test_cases) |test_case| {
         var lexer = Lexer.init(test_case.input);
         var parser = try Parser.init(testing.allocator, &lexer);
         defer parser.deinit();
