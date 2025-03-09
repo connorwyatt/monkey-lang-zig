@@ -56,6 +56,7 @@ pub const Statement = struct {
         let_statement: LetStatement,
         return_statement: ReturnStatement,
         expression_statement: ExpressionStatement,
+        block_statement: BlockStatement,
     };
 
     pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
@@ -106,6 +107,7 @@ pub const Expression = struct {
         boolean: Boolean,
         prefix_expression: PrefixExpression,
         infix_expression: InfixExpression,
+        if_expression: IfExpression,
     };
 
     pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
@@ -386,6 +388,64 @@ pub const ExpressionStatement = struct {
     }
 };
 
+pub const BlockStatement = struct {
+    allocator: Allocator,
+    token: Token,
+    statements: []const Statement,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        statements: []const Statement,
+    ) Allocator.Error!Self {
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .statements = try allocator.dupe(Statement, statements),
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        for (self.statements) |statement| {
+            statement.deinit();
+        }
+        self.allocator.free(self.statements);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        if (self.statements.len > 0) {
+            return self.statements[0].tokenLiteral();
+        } else {
+            return "";
+        }
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        defer list.deinit();
+
+        var writer = list.writer();
+
+        for (self.statements) |statement| {
+            const statement_string = try statement.allocString(allocator);
+            defer allocator.free(statement_string);
+
+            try writer.writeAll(statement_string);
+        }
+
+        return allocator.dupe(u8, list.items);
+    }
+
+    pub fn statementNode(self: *const Self) void {
+        _ = self;
+    }
+};
+
 pub const Identifier = struct {
     allocator: Allocator,
     token: Token,
@@ -609,6 +669,85 @@ pub const InfixExpression = struct {
             "({s} {s} {s})",
             .{ left_string, self.operator, right_string },
         );
+    }
+
+    pub fn expressionNode(_: *const Self) void {}
+};
+
+pub const IfExpression = struct {
+    allocator: Allocator,
+    token: Token,
+    condition: *const Expression,
+    consequence: *const BlockStatement,
+    alternative: *const ?BlockStatement,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        condition: Expression,
+        consequence: BlockStatement,
+        alternative: ?BlockStatement,
+    ) Allocator.Error!Self {
+        const condition_ptr = try allocator.create(Expression);
+        condition_ptr.* = condition;
+        const consequence_ptr = try allocator.create(BlockStatement);
+        consequence_ptr.* = consequence;
+        const alternative_ptr = try allocator.create(?BlockStatement);
+        alternative_ptr.* = alternative;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .condition = condition_ptr,
+            .consequence = consequence_ptr,
+            .alternative = alternative_ptr,
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.condition.deinit();
+        self.allocator.destroy(self.condition);
+        self.consequence.deinit();
+        self.allocator.destroy(self.consequence);
+        if (self.alternative.*) |alternative| {
+            alternative.deinit();
+        }
+        self.allocator.destroy(self.alternative);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        defer list.deinit();
+
+        const writer = list.writer();
+
+        {
+            const condition_string = try self.condition.allocString(allocator);
+            defer allocator.free(condition_string);
+            try writer.print("if{s} ", .{condition_string});
+        }
+
+        {
+            const consequence_string = try self.consequence.allocString(allocator);
+            defer allocator.free(consequence_string);
+            try writer.writeAll(consequence_string);
+        }
+
+        if (self.alternative.*) |alternative| {
+            const alternative_string = try alternative.allocString(allocator);
+            defer allocator.free(alternative_string);
+            try writer.print("else {s}", .{alternative_string});
+        }
+
+        return try allocator.dupe(u8, list.items);
     }
 
     pub fn expressionNode(_: *const Self) void {}

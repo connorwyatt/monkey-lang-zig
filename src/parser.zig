@@ -30,6 +30,7 @@ pub const Parser = struct {
         try parser.registerPrefix(Token.BANG, Parser.parsePrefixExpression);
         try parser.registerPrefix(Token.MINUS, Parser.parsePrefixExpression);
         try parser.registerPrefix(Token.LPAREN, Parser.parseGroupedExpression);
+        try parser.registerPrefix(Token.IF, Parser.parseIfExpression);
 
         try parser.registerInfix(Token.PLUS, Parser.parseInfixExpression);
         try parser.registerInfix(Token.MINUS, Parser.parseInfixExpression);
@@ -172,6 +173,31 @@ pub const Parser = struct {
         );
     }
 
+    fn parseBlockStatement(self: *Parser) !ast.BlockStatement {
+        const token = self.current_token;
+
+        var statements = std.ArrayList(ast.Statement).init(self.allocator);
+        defer statements.deinit();
+
+        self.nextToken();
+
+        while (!self.currentTokenIs(Token.RBRACE) and
+            !self.currentTokenIs(Token.EOF))
+        {
+            const statement = try self.parseStatement();
+            if (statement) |s| {
+                try statements.append(s);
+            }
+            self.nextToken();
+        }
+
+        return try ast.BlockStatement.init(
+            self.allocator,
+            token,
+            statements.items,
+        );
+    }
+
     fn parseExpression(self: *Parser, precedence: Precedence) !?ast.Expression {
         const prefix_fn =
             self.prefix_parse_fns.get(self.current_token.type) orelse {
@@ -269,6 +295,50 @@ pub const Parser = struct {
         }
 
         return expression;
+    }
+
+    fn parseIfExpression(self: *Parser) !?ast.Expression {
+        const token = self.current_token;
+
+        if (!try self.expectPeek(Token.LPAREN)) {
+            return null;
+        }
+
+        self.nextToken();
+        const condition = try self.parseExpression(Precedence.LOWEST);
+
+        if (!try self.expectPeek(Token.RPAREN)) {
+            return null;
+        }
+        if (!try self.expectPeek(Token.LBRACE)) {
+            return null;
+        }
+
+        const consequence = try self.parseBlockStatement();
+
+        const alternative = blk: {
+            if (self.peekTokenIs(Token.ELSE)) {
+                self.nextToken();
+
+                if (!try self.expectPeek(Token.LBRACE)) {
+                    return null;
+                }
+
+                break :blk try self.parseBlockStatement();
+            } else {
+                break :blk null;
+            }
+        };
+
+        return try ast.Expression.init(self.allocator, .{
+            .if_expression = try ast.IfExpression.init(
+                self.allocator,
+                token,
+                condition.?,
+                consequence,
+                alternative,
+            ),
+        });
     }
 
     fn parseInfixExpression(
@@ -788,6 +858,112 @@ test "InfixExpression" {
             test_case.right_value,
         );
     }
+}
+
+test "IfExpression" {
+    const testing = std.testing;
+
+    const input = "if (x < y) { x }";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement.subtype.* == .expression_statement);
+
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .if_expression);
+
+    const if_expression = expression.subtype.if_expression;
+    try expectInfixExpression(
+        if_expression.condition,
+        @as([]const u8, "x"),
+        "<",
+        @as([]const u8, "y"),
+    );
+
+    try testing.expectEqual(1, if_expression.consequence.statements.len);
+
+    const consequence_statement = if_expression.consequence.statements[0];
+    try testing.expect(consequence_statement.subtype.* == .expression_statement);
+
+    const consequence_expression_statement =
+        consequence_statement.subtype.expression_statement;
+
+    const consequence_expression =
+        consequence_expression_statement.expression.*.?;
+
+    try expectIdentifier(&consequence_expression, "x");
+
+    try testing.expectEqual(null, if_expression.alternative.*);
+}
+
+test "IfElseExpression" {
+    const testing = std.testing;
+
+    const input = "if (x < y) { x } else { y }";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement.subtype.* == .expression_statement);
+
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .if_expression);
+
+    const if_expression = expression.subtype.if_expression;
+    try expectInfixExpression(
+        if_expression.condition,
+        @as([]const u8, "x"),
+        "<",
+        @as([]const u8, "y"),
+    );
+
+    try testing.expectEqual(1, if_expression.consequence.statements.len);
+
+    const consequence_statement = if_expression.consequence.statements[0];
+    try testing.expect(consequence_statement.subtype.* == .expression_statement);
+
+    const consequence_expression_statement =
+        consequence_statement.subtype.expression_statement;
+
+    const consequence_expression =
+        consequence_expression_statement.expression.*.?;
+
+    try expectIdentifier(&consequence_expression, "x");
+
+    try testing.expect(if_expression.alternative.* != null);
+
+    const alternative = if_expression.alternative.*.?;
+    try testing.expectEqual(1, alternative.statements.len);
+
+    const alternative_statement = alternative.statements[0];
+    try testing.expect(alternative_statement.subtype.* == .expression_statement);
+
+    const alternative_expression_statement =
+        alternative_statement.subtype.expression_statement;
+
+    const alternative_expression =
+        alternative_expression_statement.expression.*.?;
+
+    try expectIdentifier(&alternative_expression, "y");
 }
 
 test "OperatorPrecedenceParsing" {
