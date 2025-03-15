@@ -201,9 +201,9 @@ pub const Parser = struct {
     fn parseExpression(self: *Parser, precedence: Precedence) !?ast.Expression {
         const prefix_fn =
             self.prefix_parse_fns.get(self.current_token.type) orelse {
-            try self.noPrefixParseFnError(self.current_token.type);
-            return null;
-        };
+                try self.noPrefixParseFnError(self.current_token.type);
+                return null;
+            };
 
         var left = try prefix_fn(self);
 
@@ -530,19 +530,19 @@ fn expectLiteralExpression(
     const type_of = @TypeOf(expected);
     const type_info = @typeInfo(type_of);
     switch (type_info) {
-        .Int => |x| {
+        .int => |x| {
             try testing.expectEqual(64, x.bits);
             try testing.expectEqual(std.builtin.Signedness.signed, x.signedness);
             try expectIntegerLiteral(expression, expected);
         },
-        .Bool => {
+        .bool => {
             try expectBoolean(expression, expected);
         },
-        .Pointer => |x| {
+        .pointer => |x| {
             try testing.expect(x.is_const);
             const child_type_info = @typeInfo(x.child);
             switch (child_type_info) {
-                .Int => |y| {
+                .int => |y| {
                     try testing.expectEqual(8, y.bits);
                     try testing.expectEqual(
                         std.builtin.Signedness.unsigned,
