@@ -23,6 +23,7 @@ pub const Parser = struct {
             .prefix_parse_fns = std.StringHashMap(*const PrefixParseFn).init(allocator),
             .infix_parse_fns = std.StringHashMap(*const InfixParseFn).init(allocator),
         };
+
         try parser.registerPrefix(Token.IDENT, Parser.parseIdentifier);
         try parser.registerPrefix(Token.INT, Parser.parseIntegerLiteral);
         try parser.registerPrefix(Token.TRUE, Parser.parseBoolean);
@@ -31,6 +32,7 @@ pub const Parser = struct {
         try parser.registerPrefix(Token.MINUS, Parser.parsePrefixExpression);
         try parser.registerPrefix(Token.LPAREN, Parser.parseGroupedExpression);
         try parser.registerPrefix(Token.IF, Parser.parseIfExpression);
+        try parser.registerPrefix(Token.FUNCTION, Parser.parseFunctionLiteral);
 
         try parser.registerInfix(Token.PLUS, Parser.parseInfixExpression);
         try parser.registerInfix(Token.MINUS, Parser.parseInfixExpression);
@@ -341,6 +343,76 @@ pub const Parser = struct {
         });
     }
 
+    fn parseFunctionLiteral(self: *Parser) !?ast.Expression {
+        const token = self.current_token;
+
+        if (!try self.expectPeek(Token.LPAREN)) {
+            return null;
+        }
+
+        const parameters = try self.parseFunctionParameters();
+
+        if (parameters == null) {
+            return null;
+        }
+
+        defer self.allocator.free(parameters.?);
+
+        if (!try self.expectPeek(Token.LBRACE)) {
+            return null;
+        }
+
+        const body = try self.parseBlockStatement();
+
+        return try ast.Expression.init(self.allocator, .{
+            .function_literal = try ast.FunctionLiteral.init(
+                self.allocator,
+                token,
+                parameters.?,
+                body,
+            ),
+        });
+    }
+
+    fn parseFunctionParameters(self: *Parser) !?[]const ast.Identifier {
+        var identifiers = std.ArrayList(ast.Identifier).init(self.allocator);
+        defer identifiers.deinit();
+
+        if (self.peekTokenIs(Token.RPAREN)) {
+            self.nextToken();
+            return try self.allocator.dupe(ast.Identifier, identifiers.items);
+        }
+
+        self.nextToken();
+
+        {
+            const identifier = try ast.Identifier.init(
+                self.allocator,
+                self.current_token,
+                self.current_token.literal,
+            );
+            try identifiers.append(identifier);
+        }
+
+        while (self.peekTokenIs(Token.COMMA)) {
+            self.nextToken();
+            self.nextToken();
+
+            const identifier = try ast.Identifier.init(
+                self.allocator,
+                self.current_token,
+                self.current_token.literal,
+            );
+            try identifiers.append(identifier);
+        }
+
+        if (!try self.expectPeek(Token.RPAREN)) {
+            return null;
+        }
+
+        return try self.allocator.dupe(ast.Identifier, identifiers.items);
+    }
+
     fn parseInfixExpression(
         self: *Parser,
         left: ast.Expression,
@@ -466,6 +538,16 @@ fn expectNoParserErrors(parser: *const Parser) !void {
 }
 
 fn expectIdentifier(
+    identifier: *const ast.Identifier,
+    expected_value: []const u8,
+) !void {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings(expected_value, identifier.value);
+    try testing.expectEqualStrings(expected_value, identifier.tokenLiteral());
+}
+
+fn expectExpressionToBeIdentifier(
     expression: *const ast.Expression,
     expected_value: []const u8,
 ) !void {
@@ -475,11 +557,10 @@ fn expectIdentifier(
 
     const identifier = expression.subtype.identifier;
 
-    try testing.expectEqualStrings(expected_value, identifier.value);
-    try testing.expectEqualStrings(expected_value, identifier.tokenLiteral());
+    try expectIdentifier(&identifier, expected_value);
 }
 
-fn expectIntegerLiteral(
+fn expectExpressionToBeIntegerLiteral(
     expression: *const ast.Expression,
     expected_value: i64,
 ) !void {
@@ -502,7 +583,7 @@ fn expectIntegerLiteral(
     );
 }
 
-fn expectBoolean(
+fn expectExpressionToBeBoolean(
     expression: *const ast.Expression,
     expected_value: bool,
 ) !void {
@@ -521,7 +602,7 @@ fn expectBoolean(
     );
 }
 
-fn expectLiteralExpression(
+fn expectExpressionToBeLiteralExpression(
     expression: *const ast.Expression,
     expected: anytype,
 ) !void {
@@ -533,10 +614,10 @@ fn expectLiteralExpression(
         .int => |x| {
             try testing.expectEqual(64, x.bits);
             try testing.expectEqual(std.builtin.Signedness.signed, x.signedness);
-            try expectIntegerLiteral(expression, expected);
+            try expectExpressionToBeIntegerLiteral(expression, expected);
         },
         .bool => {
-            try expectBoolean(expression, expected);
+            try expectExpressionToBeBoolean(expression, expected);
         },
         .pointer => |x| {
             try testing.expect(x.is_const);
@@ -548,9 +629,10 @@ fn expectLiteralExpression(
                         std.builtin.Signedness.unsigned,
                         y.signedness,
                     );
-                    try expectIdentifier(expression, expected);
+                    try expectExpressionToBeIdentifier(expression, expected);
                 },
                 else => {
+                    std.debug.print("InvalidType: {}", .{child_type_info});
                     return error.InvalidType;
                 },
             }
@@ -561,7 +643,7 @@ fn expectLiteralExpression(
     }
 }
 
-fn expectInfixExpression(
+fn expectExpressionToBeInfixExpression(
     expression: *const ast.Expression,
     left: anytype,
     operator: []const u8,
@@ -573,11 +655,11 @@ fn expectInfixExpression(
 
     const infix_expression = expression.subtype.infix_expression;
 
-    try expectLiteralExpression(&infix_expression.left.*.?, left);
+    try expectExpressionToBeLiteralExpression(&infix_expression.left.*.?, left);
 
     try testing.expectEqualStrings(operator, infix_expression.operator);
 
-    try expectLiteralExpression(&infix_expression.right.*.?, right);
+    try expectExpressionToBeLiteralExpression(&infix_expression.right.*.?, right);
 }
 
 test "LetStatements" {
@@ -666,7 +748,7 @@ test "IdentifierExpressions" {
     try testing.expect(statement.subtype.* == .expression_statement);
 
     const expression = statement.subtype.expression_statement.expression.*.?;
-    try expectIdentifier(&expression, "foobar");
+    try expectExpressionToBeIdentifier(&expression, "foobar");
 }
 
 test "IntegerLiteralExpression" {
@@ -689,7 +771,7 @@ test "IntegerLiteralExpression" {
     try testing.expect(statement.subtype.* == .expression_statement);
 
     const expression = statement.subtype.expression_statement.expression.*.?;
-    try expectIntegerLiteral(&expression, 5);
+    try expectExpressionToBeIntegerLiteral(&expression, 5);
 }
 
 test "BooleanExpression" {
@@ -712,7 +794,7 @@ test "BooleanExpression" {
     try testing.expect(statement.subtype.* == .expression_statement);
 
     const expression = statement.subtype.expression_statement.expression.*.?;
-    try expectBoolean(&expression, true);
+    try expectExpressionToBeBoolean(&expression, true);
 }
 
 test "PrefixExpression" {
@@ -766,7 +848,7 @@ test "PrefixExpression" {
                 prefix_expression.operator,
             );
 
-            try expectLiteralExpression(&prefix_expression.right.*.?, value);
+            try expectExpressionToBeLiteralExpression(&prefix_expression.right.*.?, value);
         }
     }.handleTestCase;
 
@@ -832,7 +914,7 @@ test "InfixExpression" {
 
             const expression = statement.subtype.expression_statement.expression.*.?;
 
-            try expectInfixExpression(
+            try expectExpressionToBeInfixExpression(
                 &expression,
                 left_value,
                 operator,
@@ -883,7 +965,7 @@ test "IfExpression" {
     try testing.expect(expression.subtype.* == .if_expression);
 
     const if_expression = expression.subtype.if_expression;
-    try expectInfixExpression(
+    try expectExpressionToBeInfixExpression(
         if_expression.condition,
         @as([]const u8, "x"),
         "<",
@@ -901,7 +983,7 @@ test "IfExpression" {
     const consequence_expression =
         consequence_expression_statement.expression.*.?;
 
-    try expectIdentifier(&consequence_expression, "x");
+    try expectExpressionToBeIdentifier(&consequence_expression, "x");
 
     try testing.expectEqual(null, if_expression.alternative.*);
 }
@@ -929,7 +1011,7 @@ test "IfElseExpression" {
     try testing.expect(expression.subtype.* == .if_expression);
 
     const if_expression = expression.subtype.if_expression;
-    try expectInfixExpression(
+    try expectExpressionToBeInfixExpression(
         if_expression.condition,
         @as([]const u8, "x"),
         "<",
@@ -947,7 +1029,7 @@ test "IfElseExpression" {
     const consequence_expression =
         consequence_expression_statement.expression.*.?;
 
-    try expectIdentifier(&consequence_expression, "x");
+    try expectExpressionToBeIdentifier(&consequence_expression, "x");
 
     try testing.expect(if_expression.alternative.* != null);
 
@@ -963,7 +1045,48 @@ test "IfElseExpression" {
     const alternative_expression =
         alternative_expression_statement.expression.*.?;
 
-    try expectIdentifier(&alternative_expression, "y");
+    try expectExpressionToBeIdentifier(&alternative_expression, "y");
+}
+
+test "FunctionLiteral" {
+    const testing = std.testing;
+
+    const input = "fn(x, y) { x + y; }";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement.subtype.* == .expression_statement);
+
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .function_literal);
+
+    const function = expression.subtype.function_literal;
+    try testing.expectEqual(2, function.parameters.len);
+
+    try expectIdentifier(&function.parameters[0], "x");
+    try expectIdentifier(&function.parameters[1], "y");
+
+    try testing.expectEqual(1, function.body.statements.len);
+    const body_statement = function.body.statements[0];
+
+    try testing.expect(body_statement.subtype.* == .expression_statement);
+
+    try expectExpressionToBeInfixExpression(
+        &body_statement.subtype.expression_statement.expression.*.?,
+        @as([]const u8, "x"),
+        "+",
+        @as([]const u8, "y"),
+    );
 }
 
 test "OperatorPrecedenceParsing" {
