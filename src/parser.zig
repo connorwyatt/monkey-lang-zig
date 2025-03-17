@@ -1089,6 +1089,57 @@ test "FunctionLiteral" {
     );
 }
 
+test "FunctionParameterParsing" {
+    const testing = std.testing;
+
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected_parameters: []const []const u8,
+    }{
+        .{
+            .input = "fn() {};",
+            .expected_parameters = &[_][]const u8{},
+        },
+        .{
+            .input = "fn(x) {};",
+            .expected_parameters = &[_][]const u8{"x"},
+        },
+        .{
+            .input = "fn(x, y, z) {};",
+            .expected_parameters = &[_][]const u8{ "x", "y", "z" },
+        },
+    };
+
+    inline for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
+
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
+
+        try expectNoParserErrors(&parser);
+
+        try testing.expectEqual(1, program.statements.len);
+
+        const statement = program.statements[0];
+        try testing.expect(statement.subtype.* == .expression_statement);
+
+        const expression = statement.subtype.expression_statement.expression.*.?;
+        try testing.expect(expression.subtype.* == .function_literal);
+
+        const function = expression.subtype.function_literal;
+        try testing.expectEqual(
+            test_case.expected_parameters.len,
+            function.parameters.len,
+        );
+
+        for (function.parameters, test_case.expected_parameters) |fp, ep| {
+            try expectIdentifier(&fp, ep);
+        }
+    }
+}
+
 test "OperatorPrecedenceParsing" {
     const testing = std.testing;
 
