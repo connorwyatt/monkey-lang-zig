@@ -42,6 +42,7 @@ pub const Parser = struct {
         try parser.registerInfix(Token.NOT_EQ, Parser.parseInfixExpression);
         try parser.registerInfix(Token.LT, Parser.parseInfixExpression);
         try parser.registerInfix(Token.GT, Parser.parseInfixExpression);
+        try parser.registerInfix(Token.LPAREN, Parser.parseCallExpression);
 
         // Read two tokens, so current_token and peek_token are both set.
         parser.nextToken();
@@ -435,6 +436,53 @@ pub const Parser = struct {
         });
     }
 
+    fn parseCallExpression(
+        self: *Parser,
+        left: ast.Expression,
+    ) Allocator.Error!ast.Expression {
+        const identifier_token = self.current_token;
+
+        const arguments = try self.parseCallArguments();
+        defer self.allocator.free(arguments.?);
+
+        const call_expression = try ast.CallExpression.init(
+            self.allocator,
+            identifier_token,
+            left,
+            arguments.?,
+        );
+
+        return ast.Expression.init(
+            self.allocator,
+            .{ .call_expression = call_expression },
+        );
+    }
+
+    fn parseCallArguments(self: *Parser) !?[]const ast.Expression {
+        var arguments = std.ArrayList(ast.Expression).init(self.allocator);
+        defer arguments.deinit();
+
+        if (self.peekTokenIs(Token.RPAREN)) {
+            self.nextToken();
+            return try self.allocator.dupe(ast.Expression, arguments.items);
+        }
+
+        self.nextToken();
+        try arguments.append((try self.parseExpression(.LOWEST)).?);
+
+        while (self.peekTokenIs(Token.COMMA)) {
+            self.nextToken();
+            self.nextToken();
+            try arguments.append((try self.parseExpression(.LOWEST)).?);
+        }
+
+        if (!try self.expectPeek(Token.RPAREN)) {
+            return null;
+        }
+
+        return try self.allocator.dupe(ast.Expression, arguments.items);
+    }
+
     fn currentTokenIs(self: *const Parser, token_type: []const u8) bool {
         return std.mem.eql(u8, self.current_token.type, token_type);
     }
@@ -512,6 +560,8 @@ fn precedenceForTokenType(token_type: []const u8) ?Precedence {
         return Precedence.PRODUCT;
     } else if (std.mem.eql(u8, token_type, Token.ASTERISK)) {
         return Precedence.PRODUCT;
+    } else if (std.mem.eql(u8, token_type, Token.LPAREN)) {
+        return Precedence.CALL;
     } else {
         return null;
     }
@@ -638,6 +688,7 @@ fn expectExpressionToBeLiteralExpression(
             }
         },
         else => {
+            std.debug.print("InvalidType: {}", .{type_info});
             return error.InvalidType;
         },
     }
@@ -1089,7 +1140,7 @@ test "FunctionLiteral" {
     );
 }
 
-test "FunctionParameterParsing" {
+test "FunctionParameters" {
     const testing = std.testing;
 
     const test_cases = [_]struct {
@@ -1136,6 +1187,96 @@ test "FunctionParameterParsing" {
 
         for (function.parameters, test_case.expected_parameters) |fp, ep| {
             try expectIdentifier(&fp, ep);
+        }
+    }
+}
+
+test "CallExpression" {
+    const testing = std.testing;
+
+    const input = "add(1, 2 * 3, 4 + 5);";
+
+    var lexer = Lexer.init(input);
+    var parser = try Parser.init(testing.allocator, &lexer);
+    defer parser.deinit();
+
+    const program = try parser.allocParseProgram(testing.allocator);
+    defer program.deinit();
+
+    try expectNoParserErrors(&parser);
+
+    try testing.expectEqual(1, program.statements.len);
+
+    const statement = program.statements[0];
+    try testing.expect(statement.subtype.* == .expression_statement);
+
+    const expression = statement.subtype.expression_statement.expression.*.?;
+    try testing.expect(expression.subtype.* == .call_expression);
+
+    const call = expression.subtype.call_expression;
+
+    try expectExpressionToBeIdentifier(call.function, "add");
+
+    try testing.expectEqual(3, call.arguments.len);
+
+    try expectExpressionToBeLiteralExpression(&call.arguments[0], @as(i64, 1));
+    try expectExpressionToBeInfixExpression(&call.arguments[1], @as(i64, 2), "*", @as(i64, 3));
+    try expectExpressionToBeInfixExpression(&call.arguments[2], @as(i64, 4), "+", @as(i64, 5));
+}
+
+test "CallArguments" {
+    const testing = std.testing;
+
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected_identifier: []const u8,
+        expected_arguments: []const []const u8,
+    }{
+        .{
+            .input = "add();",
+            .expected_identifier = "add",
+            .expected_arguments = &[_][]const u8{},
+        },
+        .{
+            .input = "add(1);",
+            .expected_identifier = "add",
+            .expected_arguments = &[_][]const u8{"1"},
+        },
+        .{
+            .input = "add(1, 2 * 3, 4 + 5);",
+            .expected_identifier = "add",
+            .expected_arguments = &[_][]const u8{ "1", "(2 * 3)", "(4 + 5)" },
+        },
+    };
+
+    inline for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
+
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
+
+        try expectNoParserErrors(&parser);
+
+        try testing.expectEqual(1, program.statements.len);
+
+        const statement = program.statements[0];
+        try testing.expect(statement.subtype.* == .expression_statement);
+
+        const expression = statement.subtype.expression_statement.expression.*.?;
+        try testing.expect(expression.subtype.* == .call_expression);
+
+        const call = expression.subtype.call_expression;
+        try testing.expectEqual(
+            test_case.expected_arguments.len,
+            call.arguments.len,
+        );
+
+        for (call.arguments, test_case.expected_arguments) |ca, ea| {
+            const argument_string = try ca.allocString(testing.allocator);
+            defer testing.allocator.free(argument_string);
+            try testing.expectEqualStrings(argument_string, ea);
         }
     }
 }
@@ -1227,6 +1368,18 @@ test "OperatorPrecedenceParsing" {
         .{
             .input = "!(true == true)",
             .expected = "(!(true == true))",
+        },
+        .{
+            .input = "a + add(b * c) + d",
+            .expected = "((a + add((b * c))) + d)",
+        },
+        .{
+            .input = "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
+            .expected = "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+        },
+        .{
+            .input = "add(a + b + c * d / f + g)",
+            .expected = "add((((a + b) + ((c * d) / f)) + g))",
         },
     };
 

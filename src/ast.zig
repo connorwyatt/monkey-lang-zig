@@ -109,6 +109,7 @@ pub const Expression = struct {
         infix_expression: InfixExpression,
         if_expression: IfExpression,
         function_literal: FunctionLiteral,
+        call_expression: CallExpression,
     };
 
     pub fn init(allocator: Allocator, subtype: Subtype) Allocator.Error!Self {
@@ -819,6 +820,74 @@ pub const FunctionLiteral = struct {
             defer allocator.free(body_string);
             try writer.writeAll(body_string);
         }
+
+        return try allocator.dupe(u8, list.items);
+    }
+
+    pub fn expressionNode(_: *const Self) void {}
+};
+
+pub const CallExpression = struct {
+    allocator: Allocator,
+    token: Token,
+    function: *const Expression,
+    arguments: []const Expression,
+
+    const Self = @This();
+
+    pub fn init(
+        allocator: Allocator,
+        token: Token,
+        function: Expression,
+        arguments: []const Expression,
+    ) Allocator.Error!Self {
+        const function_ptr = try allocator.create(Expression);
+        function_ptr.* = function;
+        return .{
+            .allocator = allocator,
+            .token = token,
+            .function = function_ptr,
+            .arguments = try allocator.dupe(Expression, arguments),
+        };
+    }
+
+    pub fn deinit(self: *const Self) void {
+        self.function.deinit();
+        self.allocator.destroy(self.function);
+        for (self.arguments) |argument| {
+            argument.deinit();
+        }
+        self.allocator.free(self.arguments);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn allocString(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        var list = std.ArrayList(u8).init(allocator);
+        defer list.deinit();
+
+        const writer = list.writer();
+
+        const function_string = try self.function.allocString(allocator);
+        defer allocator.free(function_string);
+        try writer.print("{s}(", .{function_string});
+
+        for (self.arguments, 1..) |argument, i| {
+            const argument_string = try argument.allocString(allocator);
+            defer allocator.free(argument_string);
+            try writer.writeAll(argument_string);
+
+            if (i != self.arguments.len) {
+                try writer.writeAll(", ");
+            }
+        }
+
+        try writer.writeAll(")");
 
         return try allocator.dupe(u8, list.items);
     }
