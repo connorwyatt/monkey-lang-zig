@@ -106,8 +106,7 @@ pub const Parser = struct {
                 .let_statement = let_statement,
             });
         } else if (self.currentTokenIs(Token.RETURN)) {
-            const return_statement =
-                try self.parseReturnStatement() orelse return null;
+            const return_statement = try self.parseReturnStatement();
 
             return try ast.Statement.init(self.allocator, .{
                 .return_statement = return_statement,
@@ -138,26 +137,38 @@ pub const Parser = struct {
             return null;
         }
 
-        // TODO: We're skipping the expressions until we encounter a semicolon
+        self.nextToken();
 
-        while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
+        const value = try self.parseExpression(.LOWEST);
+
+        if (self.peekTokenIs(Token.SEMICOLON)) {
+            self.nextToken();
+        }
 
         return try ast.LetStatement.init(
             self.allocator,
             let_token,
             name,
-            undefined,
+            value,
         );
     }
 
-    fn parseReturnStatement(self: *Parser) !?ast.ReturnStatement {
+    fn parseReturnStatement(self: *Parser) !ast.ReturnStatement {
         const return_token = self.current_token;
 
         self.nextToken();
 
-        while (!self.currentTokenIs(Token.SEMICOLON)) : (self.nextToken()) {}
+        const return_value = try self.parseExpression(.LOWEST);
 
-        return try ast.ReturnStatement.init(self.allocator, return_token, undefined);
+        if (self.peekTokenIs(Token.SEMICOLON)) {
+            self.nextToken();
+        }
+
+        return try ast.ReturnStatement.init(
+            self.allocator,
+            return_token,
+            return_value,
+        );
     }
 
     fn parseExpressionStatement(self: *Parser) !ast.ExpressionStatement {
@@ -716,66 +727,114 @@ fn expectExpressionToBeInfixExpression(
 test "LetStatements" {
     const testing = std.testing;
 
-    const input =
-        \\let x = 5;
-        \\let y = 10;
-        \\let foobar = 838383;
-    ;
-
-    const expected_statements = [_]struct { expected_identifier: []const u8 }{
-        .{ .expected_identifier = "x" },
-        .{ .expected_identifier = "y" },
-        .{ .expected_identifier = "foobar" },
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected_identifier: []const u8,
+        expected_value: union(enum) { int: i64, bool: bool, string: []const u8 },
+    }{
+        .{
+            .input = "let x = 5;",
+            .expected_identifier = "x",
+            .expected_value = .{ .int = @as(i64, 5) },
+        },
+        .{
+            .input = "let y = true;",
+            .expected_identifier = "y",
+            .expected_value = .{ .bool = true },
+        },
+        .{
+            .input = "let foobar = y;",
+            .expected_identifier = "foobar",
+            .expected_value = .{ .string = "y" },
+        },
     };
 
-    var lexer = Lexer.init(input);
-    var parser = try Parser.init(testing.allocator, &lexer);
-    defer parser.deinit();
+    inline for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
 
-    const program = try parser.allocParseProgram(testing.allocator);
-    defer program.deinit();
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
 
-    try expectNoParserErrors(&parser);
+        try expectNoParserErrors(&parser);
 
-    try testing.expectEqual(expected_statements.len, program.statements.len);
+        try testing.expectEqual(1, program.statements.len);
 
-    inline for (expected_statements, program.statements) |es, ps| {
+        const statement = program.statements[0];
+
+        try testing.expect(statement.subtype.* == .let_statement);
+
+        const let_statement = statement.subtype.let_statement;
+
         try testing.expectEqualStrings(
             "let",
-            ps.subtype.let_statement.tokenLiteral(),
+            let_statement.tokenLiteral(),
         );
         try testing.expectEqualStrings(
-            es.expected_identifier,
-            ps.subtype.let_statement.name.value,
+            test_case.expected_identifier,
+            let_statement.name.value,
         );
+
+        switch (test_case.expected_value) {
+            inline else => |x| try expectExpressionToBeLiteralExpression(
+                &let_statement.value.*.?,
+                x,
+            ),
+        }
     }
 }
 
 test "ReturnStatements" {
     const testing = std.testing;
 
-    const input =
-        \\return 5;
-        \\return 10;
-        \\return 993322;
-    ;
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected_value: union(enum) { int: i64, bool: bool, string: []const u8 },
+    }{
+        .{
+            .input = "return 5;",
+            .expected_value = .{ .int = @as(i64, 5) },
+        },
+        .{
+            .input = "return true;",
+            .expected_value = .{ .bool = true },
+        },
+        .{
+            .input = "return y;",
+            .expected_value = .{ .string = "y" },
+        },
+    };
 
-    var lexer = Lexer.init(input);
-    var parser = try Parser.init(testing.allocator, &lexer);
-    defer parser.deinit();
+    inline for (test_cases) |test_case| {
+        var lexer = Lexer.init(test_case.input);
+        var parser = try Parser.init(testing.allocator, &lexer);
+        defer parser.deinit();
 
-    const program = try parser.allocParseProgram(testing.allocator);
-    defer program.deinit();
+        const program = try parser.allocParseProgram(testing.allocator);
+        defer program.deinit();
 
-    try expectNoParserErrors(&parser);
+        try expectNoParserErrors(&parser);
 
-    try testing.expectEqual(3, program.statements.len);
+        try testing.expectEqual(1, program.statements.len);
 
-    for (program.statements) |ps| {
+        const statement = program.statements[0];
+
+        try testing.expect(statement.subtype.* == .return_statement);
+
+        const return_statement = statement.subtype.return_statement;
+
         try testing.expectEqualStrings(
             "return",
-            ps.subtype.return_statement.tokenLiteral(),
+            return_statement.tokenLiteral(),
         );
+
+        switch (test_case.expected_value) {
+            inline else => |x| try expectExpressionToBeLiteralExpression(
+                &return_statement.return_value.*.?,
+                x,
+            ),
+        }
     }
 }
 
