@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 pub const ObjectType = struct {
     pub const INTEGER_OBJ = "INTEGER";
     pub const BOOLEAN_OBJ = "BOOLEAN";
+    pub const NULL_OBJ = "NULL";
 };
 
 pub const Object = struct {
@@ -62,5 +63,23 @@ pub const Boolean = struct {
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return try std.fmt.allocPrint(allocator, "{}", .{self.value});
+    }
+};
+
+pub const Null = struct {
+    const Self = @This();
+
+    pub fn @"type"(self: *const Self) []const u8 {
+        _ = self;
+        return ObjectType.NULL_OBJ;
+    }
+
+    pub fn inspect(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
+        _ = self;
+        _ = allocator;
+        return "null";
     }
 };
