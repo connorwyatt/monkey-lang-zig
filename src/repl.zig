@@ -1,5 +1,6 @@
 const std = @import("std");
 const os = @import("builtin").os;
+const evaluator = @import("evaluator.zig");
 const Lexer = @import("lexer.zig").Lexer;
 const Parser = @import("parser.zig").Parser;
 const Token = @import("token.zig").Token;
@@ -40,10 +41,12 @@ pub fn start(reader: anytype, writer: anytype) !void {
             continue;
         }
 
-        const program_string = try program.allocString(allocator);
-        defer allocator.free(program_string);
-        try writer.writeAll(program_string);
-        try writer.writeAll("\n");
+        const evaluated = evaluator.eval(program.toAnyNodePointer());
+        if (evaluated) |e| {
+            const inspect_string = try e.inspect(allocator);
+            defer allocator.free(inspect_string);
+            try writer.print("{s}\n", .{inspect_string});
+        }
     }
 }
 

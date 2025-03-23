@@ -23,7 +23,10 @@ pub const Object = struct {
         };
     }
 
-    pub fn inspect(self: *const Self, allocator: Allocator) []const u8 {
+    pub fn inspect(
+        self: *const Self,
+        allocator: Allocator,
+    ) Allocator.Error![]const u8 {
         return switch (self.subtype) {
             inline else => |x| x.inspect(allocator),
         };
