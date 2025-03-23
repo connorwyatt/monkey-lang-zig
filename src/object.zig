@@ -31,6 +31,12 @@ pub const Object = struct {
             inline else => |x| x.inspect(allocator),
         };
     }
+
+    pub fn toObject(self: *const Self) Object {
+        return switch (self.subtype) {
+            inline else => |x| x.toObject(),
+        };
+    }
 };
 
 pub const Integer = struct {
@@ -49,12 +55,26 @@ pub const Integer = struct {
     ) Allocator.Error![]const u8 {
         return try std.fmt.allocPrint(allocator, "{}", .{self.value});
     }
+
+    pub fn toObject(self: *const Self) Object {
+        return .{ .subtype = .{ .integer = self.* } };
+    }
 };
 
 pub const Boolean = struct {
     value: bool,
 
     const Self = @This();
+
+    pub const TRUE = blk: {
+        const value = Boolean{ .value = true };
+        break :blk &value;
+    };
+
+    pub const FALSE = blk: {
+        const value = Boolean{ .value = false };
+        break :blk &value;
+    };
 
     pub fn @"type"(self: *const Self) []const u8 {
         _ = self;
@@ -66,6 +86,10 @@ pub const Boolean = struct {
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return try std.fmt.allocPrint(allocator, "{}", .{self.value});
+    }
+
+    pub fn toObject(self: *const Self) Object {
+        return .{ .subtype = .{ .boolean = self.* } };
     }
 };
 

@@ -21,13 +21,13 @@ pub fn eval(node: ast.AnyNodePointer) ?object.Object {
             return eval(expression.toAnyNodePointer());
         },
         .integer_literal => |integer_literal| {
-            return object.Object{
-                .subtype = .{
-                    .integer = object.Integer{
-                        .value = integer_literal.value,
-                    },
-                },
+            const o = object.Integer{
+                .value = integer_literal.value,
             };
+            return o.toObject();
+        },
+        .boolean => |boolean| {
+            return nativeBoolToBooleanObject(boolean.value).toObject();
         },
         else => {},
     }
@@ -43,6 +43,14 @@ fn evalStatements(statements: []const ast.Statement) ?object.Object {
     }
 
     return result;
+}
+
+fn nativeBoolToBooleanObject(input: bool) *const object.Boolean {
+    if (input) {
+        return object.Boolean.TRUE;
+    } else {
+        return object.Boolean.FALSE;
+    }
 }
 
 fn testEval(input: []const u8) !object.Object {
@@ -71,6 +79,15 @@ fn expectIntegerObject(o: *const object.Object, expected_value: i64) !void {
     try testing.expectEqual(expected_value, integer_object.value);
 }
 
+fn expectBooleanObject(o: *const object.Object, expected_value: bool) !void {
+    const testing = std.testing;
+
+    try testing.expect(o.subtype == .boolean);
+    const boolean_object = o.subtype.boolean;
+
+    try testing.expectEqual(expected_value, boolean_object.value);
+}
+
 test "eval IntegerExpression" {
     const test_cases = [_]struct {
         input: []const u8,
@@ -83,5 +100,20 @@ test "eval IntegerExpression" {
     inline for (test_cases) |test_case| {
         const evaluated = try testEval(test_case.input);
         try expectIntegerObject(&evaluated, test_case.expected);
+    }
+}
+
+test "eval BooleanExpression" {
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected: bool,
+    }{
+        .{ .input = "true", .expected = true },
+        .{ .input = "false", .expected = false },
+    };
+
+    inline for (test_cases) |test_case| {
+        const evaluated = try testEval(test_case.input);
+        try expectBooleanObject(&evaluated, test_case.expected);
     }
 }
