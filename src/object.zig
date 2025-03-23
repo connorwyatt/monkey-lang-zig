@@ -96,6 +96,11 @@ pub const Boolean = struct {
 pub const Null = struct {
     const Self = @This();
 
+    pub const NULL = blk: {
+        const value = Null{};
+        break :blk &value;
+    };
+
     pub fn @"type"(self: *const Self) []const u8 {
         _ = self;
         return ObjectType.NULL_OBJ;
