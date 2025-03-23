@@ -22,7 +22,7 @@ pub const Node = struct {
         };
     }
 
-    pub fn deinit(self: *const Self) Self {
+    pub fn deinit(self: *const Self) void {
         switch (self.subtype.*) {
             inline else => |x| x.deinit(),
         }
