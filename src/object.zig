@@ -8,7 +8,7 @@ pub const ObjectType = struct {
 };
 
 pub const Object = struct {
-    subtype: *const Subtype,
+    subtype: Subtype,
 
     const Self = @This();
 

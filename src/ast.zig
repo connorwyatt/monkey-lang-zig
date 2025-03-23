@@ -43,6 +43,12 @@ pub const Node = struct {
             inline else => |x| x.allocString(allocator),
         };
     }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return switch (self.subtype.*) {
+            inline else => |x| x.toAnyNodePointer(),
+        };
+    }
 };
 
 pub const Statement = struct {
@@ -92,6 +98,12 @@ pub const Statement = struct {
 
     pub fn statementNode(self: *const Self) void {
         _ = self;
+    }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return switch (self.subtype.*) {
+            inline else => |x| x.toAnyNodePointer(),
+        };
     }
 };
 
@@ -145,6 +157,12 @@ pub const Expression = struct {
 
     pub fn expressionNode(self: *const Self) void {
         _ = self;
+    }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return switch (self.subtype.*) {
+            inline else => |x| x.toAnyNodePointer(),
+        };
     }
 };
 
@@ -200,6 +218,10 @@ pub const Program = struct {
 
     pub fn statementNode(self: *const Self) void {
         _ = self;
+    }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .program = self };
     }
 };
 
@@ -275,6 +297,10 @@ pub const LetStatement = struct {
     }
 
     pub fn statementNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .let_statement = self };
+    }
 };
 
 pub const ReturnStatement = struct {
@@ -336,6 +362,10 @@ pub const ReturnStatement = struct {
     pub fn statementNode(self: *const Self) void {
         _ = self;
     }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .return_statement = self };
+    }
 };
 
 pub const ExpressionStatement = struct {
@@ -387,6 +417,10 @@ pub const ExpressionStatement = struct {
 
     pub fn statementNode(self: *const Self) void {
         _ = self;
+    }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .expression_statement = self };
     }
 };
 
@@ -446,6 +480,10 @@ pub const BlockStatement = struct {
     pub fn statementNode(self: *const Self) void {
         _ = self;
     }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .block_statement = self };
+    }
 };
 
 pub const Identifier = struct {
@@ -485,6 +523,10 @@ pub const Identifier = struct {
     pub fn expressionNode(self: *const Self) void {
         _ = self;
     }
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .identifier = self };
+    }
 };
 
 pub const IntegerLiteral = struct {
@@ -522,6 +564,10 @@ pub const IntegerLiteral = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .integer_literal = self };
+    }
 };
 
 pub const Boolean = struct {
@@ -559,6 +605,10 @@ pub const Boolean = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .boolean = self };
+    }
 };
 
 pub const PrefixExpression = struct {
@@ -611,6 +661,10 @@ pub const PrefixExpression = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .prefix_expression = self };
+    }
 };
 
 pub const InfixExpression = struct {
@@ -674,6 +728,10 @@ pub const InfixExpression = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .infix_expression = self };
+    }
 };
 
 pub const IfExpression = struct {
@@ -753,6 +811,10 @@ pub const IfExpression = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .if_expression = self };
+    }
 };
 
 pub const FunctionLiteral = struct {
@@ -825,6 +887,10 @@ pub const FunctionLiteral = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .function_literal = self };
+    }
 };
 
 pub const CallExpression = struct {
@@ -893,6 +959,32 @@ pub const CallExpression = struct {
     }
 
     pub fn expressionNode(_: *const Self) void {}
+
+    pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
+        return .{ .call_expression = self };
+    }
+};
+
+// TODO: See if this could be a bit less manual with comptime
+pub const AnyNodePointer = union(enum) {
+    node: *const Node,
+
+    statement: *const Statement,
+    program: *const Program,
+    let_statement: *const LetStatement,
+    return_statement: *const ReturnStatement,
+    expression_statement: *const ExpressionStatement,
+    block_statement: *const BlockStatement,
+
+    expression: *const Expression,
+    identifier: *const Identifier,
+    integer_literal: *const IntegerLiteral,
+    boolean: *const Boolean,
+    prefix_expression: *const PrefixExpression,
+    infix_expression: *const InfixExpression,
+    if_expression: *const IfExpression,
+    function_literal: *const FunctionLiteral,
+    call_expression: *const CallExpression,
 };
 
 test "allocString" {
