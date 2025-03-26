@@ -15,6 +15,7 @@ pub const Object = struct {
     pub const Subtype = union(enum) {
         integer: Integer,
         boolean: Boolean,
+        null: Null,
     };
 
     pub fn @"type"(self: *const Self) []const u8 {
@@ -66,16 +67,6 @@ pub const Boolean = struct {
 
     const Self = @This();
 
-    pub const TRUE = blk: {
-        const value = Boolean{ .value = true };
-        break :blk &value;
-    };
-
-    pub const FALSE = blk: {
-        const value = Boolean{ .value = false };
-        break :blk &value;
-    };
-
     pub fn @"type"(self: *const Self) []const u8 {
         _ = self;
         return ObjectType.BOOLEAN_OBJ;
@@ -96,11 +87,6 @@ pub const Boolean = struct {
 pub const Null = struct {
     const Self = @This();
 
-    pub const NULL = blk: {
-        const value = Null{};
-        break :blk &value;
-    };
-
     pub fn @"type"(self: *const Self) []const u8 {
         _ = self;
         return ObjectType.NULL_OBJ;
@@ -113,5 +99,9 @@ pub const Null = struct {
         _ = self;
         _ = allocator;
         return "null";
+    }
+
+    pub fn toObject(self: *const Self) Object {
+        return .{ .subtype = .{ .null = self.* } };
     }
 };

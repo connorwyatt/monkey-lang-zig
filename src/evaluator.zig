@@ -6,6 +6,21 @@ const Lexer = @import("lexer.zig").Lexer;
 const object = @import("object.zig");
 const Parser = @import("parser.zig").Parser;
 
+pub const TRUE = blk: {
+    const value = object.Boolean{ .value = true };
+    break :blk value.toObject();
+};
+
+pub const FALSE = blk: {
+    const value = object.Boolean{ .value = false };
+    break :blk value.toObject();
+};
+
+pub const NULL = blk: {
+    const value = object.Null{};
+    break :blk value.toObject();
+};
+
 pub fn eval(node: ast.AnyNodePointer) ?object.Object {
     switch (node) {
         .program => |program| {
@@ -20,6 +35,14 @@ pub fn eval(node: ast.AnyNodePointer) ?object.Object {
         .expression => |expression| {
             return eval(expression.toAnyNodePointer());
         },
+        .prefix_expression => |prefix_expression| {
+            if (prefix_expression.right.*) |*r| {
+                const right = eval(r.toAnyNodePointer());
+                return evalPrefixExpression(prefix_expression.operator, right.?);
+            } else {
+                return null;
+            }
+        },
         .integer_literal => |integer_literal| {
             const o = object.Integer{
                 .value = integer_literal.value,
@@ -27,7 +50,7 @@ pub fn eval(node: ast.AnyNodePointer) ?object.Object {
             return o.toObject();
         },
         .boolean => |boolean| {
-            return nativeBoolToBooleanObject(boolean.value).toObject();
+            return nativeBoolToBooleanObject(boolean.value);
         },
         else => {},
     }
@@ -39,17 +62,43 @@ fn evalStatements(statements: []const ast.Statement) ?object.Object {
     var result: ?object.Object = null;
 
     for (statements) |*statement| {
-        result = eval(.{ .statement = statement });
+        result = eval(statement.toAnyNodePointer());
     }
 
     return result;
 }
 
-fn nativeBoolToBooleanObject(input: bool) *const object.Boolean {
-    if (input) {
-        return object.Boolean.TRUE;
+fn evalPrefixExpression(operator: []const u8, right: object.Object) object.Object {
+    if (std.mem.eql(u8, operator, "!")) {
+        return evalBangOperatorExpression(right);
     } else {
-        return object.Boolean.FALSE;
+        return NULL;
+    }
+}
+
+fn evalBangOperatorExpression(right: object.Object) object.Object {
+    switch (right.subtype) {
+        .boolean => |boolean| {
+            if (boolean.value) {
+                return FALSE;
+            } else {
+                return TRUE;
+            }
+        },
+        .null => {
+            return TRUE;
+        },
+        else => {
+            return FALSE;
+        },
+    }
+}
+
+fn nativeBoolToBooleanObject(input: bool) object.Object {
+    if (input) {
+        return TRUE;
+    } else {
+        return FALSE;
     }
 }
 
@@ -63,14 +112,14 @@ fn testEval(input: []const u8) !object.Object {
     const program = try parser.allocParseProgram(testing.allocator);
     defer program.deinit();
 
-    const eval_result = eval(.{ .program = &program });
+    const eval_result = eval(program.toAnyNodePointer());
 
     try testing.expect(eval_result != null);
 
     return eval_result.?;
 }
 
-fn expectIntegerObject(o: *const object.Object, expected_value: i64) !void {
+fn expectIntegerObject(o: object.Object, expected_value: i64) !void {
     const testing = std.testing;
 
     try testing.expect(o.subtype == .integer);
@@ -79,7 +128,7 @@ fn expectIntegerObject(o: *const object.Object, expected_value: i64) !void {
     try testing.expectEqual(expected_value, integer_object.value);
 }
 
-fn expectBooleanObject(o: *const object.Object, expected_value: bool) !void {
+fn expectBooleanObject(o: object.Object, expected_value: bool) !void {
     const testing = std.testing;
 
     try testing.expect(o.subtype == .boolean);
@@ -99,7 +148,7 @@ test "eval IntegerExpression" {
 
     inline for (test_cases) |test_case| {
         const evaluated = try testEval(test_case.input);
-        try expectIntegerObject(&evaluated, test_case.expected);
+        try expectIntegerObject(evaluated, test_case.expected);
     }
 }
 
@@ -114,6 +163,25 @@ test "eval BooleanExpression" {
 
     inline for (test_cases) |test_case| {
         const evaluated = try testEval(test_case.input);
-        try expectBooleanObject(&evaluated, test_case.expected);
+        try expectBooleanObject(evaluated, test_case.expected);
+    }
+}
+
+test "eval BangOperator" {
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected: bool,
+    }{
+        .{ .input = "!true", .expected = false },
+        .{ .input = "!false", .expected = true },
+        .{ .input = "!5", .expected = false },
+        .{ .input = "!!true", .expected = true },
+        .{ .input = "!!false", .expected = false },
+        .{ .input = "!!5", .expected = true },
+    };
+
+    inline for (test_cases) |test_case| {
+        const evaluated = try testEval(test_case.input);
+        try expectBooleanObject(evaluated, test_case.expected);
     }
 }
