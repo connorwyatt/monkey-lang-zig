@@ -24,14 +24,14 @@ pub const Node = struct {
 
     pub fn deinit(self: *const Self) void {
         switch (self.subtype.*) {
-            inline else => |x| x.deinit(),
+            inline else => |*x| x.deinit(),
         }
         self.allocator.destroy(self.subtype);
     }
 
     pub fn tokenLiteral(self: *const Self) []const u8 {
-        return switch (self.subtype) {
-            inline else => |x| x.tokenLiteral(),
+        return switch (self.subtype.*) {
+            inline else => |*x| x.tokenLiteral(),
         };
     }
 
@@ -39,14 +39,14 @@ pub const Node = struct {
         self: *const Self,
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
-        return switch (self.subtype) {
-            inline else => |x| x.allocString(allocator),
+        return switch (self.subtype.*) {
+            inline else => |*x| x.allocString(allocator),
         };
     }
 
     pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
         return switch (self.subtype.*) {
-            inline else => |x| x.toAnyNodePointer(),
+            inline else => |*x| x.toAnyNodePointer(),
         };
     }
 };
@@ -76,14 +76,14 @@ pub const Statement = struct {
 
     pub fn deinit(self: *const Self) void {
         switch (self.subtype.*) {
-            inline else => |x| x.deinit(),
+            inline else => |*x| x.deinit(),
         }
         self.allocator.destroy(self.subtype);
     }
 
     pub fn tokenLiteral(self: *const Self) []const u8 {
         return switch (self.subtype.*) {
-            inline else => |x| x.tokenLiteral(),
+            inline else => |*x| x.tokenLiteral(),
         };
     }
 
@@ -92,7 +92,7 @@ pub const Statement = struct {
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return switch (self.subtype.*) {
-            inline else => |x| x.allocString(allocator),
+            inline else => |*x| x.allocString(allocator),
         };
     }
 
@@ -102,7 +102,7 @@ pub const Statement = struct {
 
     pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
         return switch (self.subtype.*) {
-            inline else => |x| x.toAnyNodePointer(),
+            inline else => |*x| x.toAnyNodePointer(),
         };
     }
 };
@@ -135,14 +135,14 @@ pub const Expression = struct {
 
     pub fn deinit(self: *const Self) void {
         switch (self.subtype.*) {
-            inline else => |x| x.deinit(),
+            inline else => |*x| x.deinit(),
         }
         self.allocator.destroy(self.subtype);
     }
 
     pub fn tokenLiteral(self: *const Self) []const u8 {
         return switch (self.subtype.*) {
-            inline else => |x| x.tokenLiteral(),
+            inline else => |*x| x.tokenLiteral(),
         };
     }
 
@@ -151,7 +151,7 @@ pub const Expression = struct {
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return switch (self.subtype.*) {
-            inline else => |x| x.allocString(allocator),
+            inline else => |*x| x.allocString(allocator),
         };
     }
 
@@ -161,7 +161,7 @@ pub const Expression = struct {
 
     pub fn toAnyNodePointer(self: *const Self) AnyNodePointer {
         return switch (self.subtype.*) {
-            inline else => |x| x.toAnyNodePointer(),
+            inline else => |*x| x.toAnyNodePointer(),
         };
     }
 };
