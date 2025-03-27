@@ -48,6 +48,12 @@ pub fn eval(node: ast.AnyNodePointer) ?object.Object {
             const right = eval(infix_expression.right.*.?.toAnyNodePointer());
             return evalInfixExpression(infix_expression.operator, left.?, right.?);
         },
+        .block_statement => |block_statement| {
+            return evalStatements(block_statement.statements);
+        },
+        .if_expression => |if_expression| {
+            return evalIfExpression(if_expression);
+        },
         .integer_literal => |integer_literal| {
             const o = object.Integer{
                 .value = integer_literal.value,
@@ -176,6 +182,30 @@ fn evalIntegerInfixExpression(
     }
 }
 
+fn evalIfExpression(if_expression: *const ast.IfExpression) object.Object {
+    const condition = eval(if_expression.condition.toAnyNodePointer());
+
+    if (isTruthy(condition.?)) {
+        return eval(if_expression.consequence.toAnyNodePointer()).?;
+    }
+
+    if (if_expression.alternative.*) |*alternative| {
+        return eval(alternative.toAnyNodePointer()).?;
+    }
+
+    return NULL;
+}
+
+fn isTruthy(o: object.Object) bool {
+    if (o.subtype == .null) {
+        return false;
+    } else if (o.subtype == .boolean and o.subtype.boolean.value == false) {
+        return false;
+    }
+
+    return true;
+}
+
 fn nativeBoolToBooleanObject(input: bool) object.Object {
     if (input) {
         return TRUE;
@@ -208,6 +238,16 @@ fn expectIntegerObject(o: object.Object, expected_value: i64) !void {
     const integer_object = o.subtype.integer;
 
     try testing.expectEqual(expected_value, integer_object.value);
+}
+
+fn expectNullableIntegerObject(o: object.Object, expected_value: ?i64) !void {
+    const testing = std.testing;
+
+    if (expected_value) |ev| {
+        try expectIntegerObject(o, ev);
+    } else {
+        try testing.expect(o.subtype == .null);
+    }
 }
 
 fn expectBooleanObject(o: object.Object, expected_value: bool) !void {
@@ -295,5 +335,25 @@ test "eval BangOperator" {
     inline for (test_cases) |test_case| {
         const evaluated = try testEval(test_case.input);
         try expectBooleanObject(evaluated, test_case.expected);
+    }
+}
+
+test "eval IfElseExpression" {
+    const test_cases = [_]struct {
+        input: []const u8,
+        expected: ?i64,
+    }{
+        .{ .input = "if (true) { 10 }", .expected = 10 },
+        .{ .input = "if (false) { 10 }", .expected = null },
+        .{ .input = "if (1) { 10 }", .expected = 10 },
+        .{ .input = "if (1 < 2) { 10 }", .expected = 10 },
+        .{ .input = "if (1 > 2) { 10 }", .expected = null },
+        .{ .input = "if (1 > 2) { 10 } else { 20 }", .expected = 20 },
+        .{ .input = "if (1 < 2) { 10 } else { 20 }", .expected = 10 },
+    };
+
+    inline for (test_cases) |test_case| {
+        const evaluated = try testEval(test_case.input);
+        try expectNullableIntegerObject(evaluated, test_case.expected);
     }
 }
