@@ -43,6 +43,11 @@ pub fn eval(node: ast.AnyNodePointer) ?object.Object {
                 return null;
             }
         },
+        .infix_expression => |infix_expression| {
+            const left = eval(infix_expression.left.*.?.toAnyNodePointer());
+            const right = eval(infix_expression.right.*.?.toAnyNodePointer());
+            return evalInfixExpression(infix_expression.operator, left.?, right.?);
+        },
         .integer_literal => |integer_literal| {
             const o = object.Integer{
                 .value = integer_literal.value,
@@ -109,6 +114,46 @@ fn evalMinusPrefixOperatorExpression(right: object.Object) object.Object {
     return o.toObject();
 }
 
+fn evalInfixExpression(
+    operator: []const u8,
+    left: object.Object,
+    right: object.Object,
+) object.Object {
+    if (std.mem.eql(u8, left.type(), object.ObjectType.INTEGER_OBJ) and
+        std.mem.eql(u8, right.type(), object.ObjectType.INTEGER_OBJ))
+    {
+        return evalIntegerInfixExpression(
+            operator,
+            left.subtype.integer,
+            right.subtype.integer,
+        );
+    } else {
+        return NULL;
+    }
+}
+
+fn evalIntegerInfixExpression(
+    operator: []const u8,
+    left: object.Integer,
+    right: object.Integer,
+) object.Object {
+    if (std.mem.eql(u8, operator, "+")) {
+        const o = object.Integer{ .value = left.value + right.value };
+        return o.toObject();
+    } else if (std.mem.eql(u8, operator, "-")) {
+        const o = object.Integer{ .value = left.value - right.value };
+        return o.toObject();
+    } else if (std.mem.eql(u8, operator, "*")) {
+        const o = object.Integer{ .value = left.value * right.value };
+        return o.toObject();
+    } else if (std.mem.eql(u8, operator, "/")) {
+        const o = object.Integer{ .value = @divTrunc(left.value, right.value) };
+        return o.toObject();
+    } else {
+        return NULL;
+    }
+}
+
 fn nativeBoolToBooleanObject(input: bool) object.Object {
     if (input) {
         return TRUE;
@@ -161,6 +206,17 @@ test "eval IntegerExpression" {
         .{ .input = "10", .expected = 10 },
         .{ .input = "-5", .expected = -5 },
         .{ .input = "-10", .expected = -10 },
+        .{ .input = "5 + 5 + 5 + 5 - 10", .expected = 10 },
+        .{ .input = "2 * 2 * 2 * 2 * 2", .expected = 32 },
+        .{ .input = "-50 + 100 + -50", .expected = 0 },
+        .{ .input = "5 * 2 + 10", .expected = 20 },
+        .{ .input = "5 + 2 * 10", .expected = 25 },
+        .{ .input = "20 + 2 * -10", .expected = 0 },
+        .{ .input = "50 / 2 * 2 + 10", .expected = 60 },
+        .{ .input = "2 * (5 + 10)", .expected = 30 },
+        .{ .input = "3 * 3 * 3 + 10", .expected = 37 },
+        .{ .input = "3 * (3 * 3) + 10", .expected = 37 },
+        .{ .input = "(5 + 10 * 2 + 15 / 3) * 2 + -10", .expected = 50 },
     };
 
     inline for (test_cases) |test_case| {
