@@ -149,6 +149,14 @@ fn evalIntegerInfixExpression(
     } else if (std.mem.eql(u8, operator, "/")) {
         const o = object.Integer{ .value = @divTrunc(left.value, right.value) };
         return o.toObject();
+    } else if (std.mem.eql(u8, operator, "<")) {
+        return nativeBoolToBooleanObject(left.value < right.value);
+    } else if (std.mem.eql(u8, operator, ">")) {
+        return nativeBoolToBooleanObject(left.value > right.value);
+    } else if (std.mem.eql(u8, operator, "==")) {
+        return nativeBoolToBooleanObject(left.value == right.value);
+    } else if (std.mem.eql(u8, operator, "!=")) {
+        return nativeBoolToBooleanObject(left.value != right.value);
     } else {
         return NULL;
     }
@@ -232,6 +240,14 @@ test "eval BooleanExpression" {
     }{
         .{ .input = "true", .expected = true },
         .{ .input = "false", .expected = false },
+        .{ .input = "1 < 2", .expected = true },
+        .{ .input = "1 > 2", .expected = false },
+        .{ .input = "1 < 1", .expected = false },
+        .{ .input = "1 > 1", .expected = false },
+        .{ .input = "1 == 1", .expected = true },
+        .{ .input = "1 != 1", .expected = false },
+        .{ .input = "1 == 2", .expected = false },
+        .{ .input = "1 != 2", .expected = true },
     };
 
     inline for (test_cases) |test_case| {
