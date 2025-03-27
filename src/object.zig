@@ -24,12 +24,12 @@ pub const Object = struct {
         };
     }
 
-    pub fn inspect(
+    pub fn allocInspect(
         self: *const Self,
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
         return switch (self.subtype) {
-            inline else => |x| x.inspect(allocator),
+            inline else => |x| x.allocInspect(allocator),
         };
     }
 
@@ -50,7 +50,7 @@ pub const Integer = struct {
         return ObjectType.INTEGER_OBJ;
     }
 
-    pub fn inspect(
+    pub fn allocInspect(
         self: *const Self,
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
@@ -72,7 +72,7 @@ pub const Boolean = struct {
         return ObjectType.BOOLEAN_OBJ;
     }
 
-    pub fn inspect(
+    pub fn allocInspect(
         self: *const Self,
         allocator: Allocator,
     ) Allocator.Error![]const u8 {
@@ -92,7 +92,7 @@ pub const Null = struct {
         return ObjectType.NULL_OBJ;
     }
 
-    pub fn inspect(
+    pub fn allocInspect(
         self: *const Self,
         allocator: Allocator,
     ) Allocator.Error![]const u8 {

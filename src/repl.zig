@@ -43,7 +43,7 @@ pub fn start(reader: anytype, writer: anytype) !void {
 
         const evaluated = evaluator.eval(program.toAnyNodePointer());
         if (evaluated) |e| {
-            const inspect_string = try e.inspect(allocator);
+            const inspect_string = try e.allocInspect(allocator);
             defer allocator.free(inspect_string);
             try writer.print("{s}\n", .{inspect_string});
         }
