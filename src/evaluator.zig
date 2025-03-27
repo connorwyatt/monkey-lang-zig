@@ -68,9 +68,14 @@ fn evalStatements(statements: []const ast.Statement) ?object.Object {
     return result;
 }
 
-fn evalPrefixExpression(operator: []const u8, right: object.Object) object.Object {
+fn evalPrefixExpression(
+    operator: []const u8,
+    right: object.Object,
+) object.Object {
     if (std.mem.eql(u8, operator, "!")) {
         return evalBangOperatorExpression(right);
+    } else if (std.mem.eql(u8, operator, "-")) {
+        return evalMinusPrefixOperatorExpression(right);
     } else {
         return NULL;
     }
@@ -92,6 +97,16 @@ fn evalBangOperatorExpression(right: object.Object) object.Object {
             return FALSE;
         },
     }
+}
+
+fn evalMinusPrefixOperatorExpression(right: object.Object) object.Object {
+    if (!std.mem.eql(u8, right.type(), object.ObjectType.INTEGER_OBJ)) {
+        return NULL;
+    }
+
+    const value = right.subtype.integer.value;
+    const o = object.Integer{ .value = -value };
+    return o.toObject();
 }
 
 fn nativeBoolToBooleanObject(input: bool) object.Object {
@@ -144,6 +159,8 @@ test "eval IntegerExpression" {
     }{
         .{ .input = "5", .expected = 5 },
         .{ .input = "10", .expected = 10 },
+        .{ .input = "-5", .expected = -5 },
+        .{ .input = "-10", .expected = -10 },
     };
 
     inline for (test_cases) |test_case| {
