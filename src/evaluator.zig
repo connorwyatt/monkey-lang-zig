@@ -119,17 +119,31 @@ fn evalInfixExpression(
     left: object.Object,
     right: object.Object,
 ) object.Object {
-    if (std.mem.eql(u8, left.type(), object.ObjectType.INTEGER_OBJ) and
-        std.mem.eql(u8, right.type(), object.ObjectType.INTEGER_OBJ))
-    {
+    if (left.subtype == .integer and right.subtype == .integer) {
         return evalIntegerInfixExpression(
             operator,
             left.subtype.integer,
             right.subtype.integer,
         );
-    } else {
-        return NULL;
+    } else if (left.subtype == .boolean and right.subtype == .boolean) {
+        if (std.mem.eql(u8, operator, "==")) {
+            return nativeBoolToBooleanObject(
+                left.subtype.boolean.value == right.subtype.boolean.value,
+            );
+        } else if (std.mem.eql(u8, operator, "!=")) {
+            return nativeBoolToBooleanObject(
+                left.subtype.boolean.value != right.subtype.boolean.value,
+            );
+        }
+    } else if (left.subtype == .null and right.subtype == .null) {
+        if (std.mem.eql(u8, operator, "==")) {
+            return TRUE;
+        } else if (std.mem.eql(u8, operator, "!=")) {
+            return FALSE;
+        }
     }
+
+    return NULL;
 }
 
 fn evalIntegerInfixExpression(
@@ -248,6 +262,15 @@ test "eval BooleanExpression" {
         .{ .input = "1 != 1", .expected = false },
         .{ .input = "1 == 2", .expected = false },
         .{ .input = "1 != 2", .expected = true },
+        .{ .input = "true == true", .expected = true },
+        .{ .input = "false == false", .expected = true },
+        .{ .input = "true == false", .expected = false },
+        .{ .input = "true != false", .expected = true },
+        .{ .input = "false != true", .expected = true },
+        .{ .input = "(1 < 2) == true", .expected = true },
+        .{ .input = "(1 < 2) == false", .expected = false },
+        .{ .input = "(1 > 2) == true", .expected = false },
+        .{ .input = "(1 > 2) == false", .expected = true },
     };
 
     inline for (test_cases) |test_case| {
